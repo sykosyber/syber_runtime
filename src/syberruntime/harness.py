@@ -78,6 +78,8 @@ class HarnessTaskResult:
     expected_stabilized: bool
     failure: str | None
     mutation_report: dict[str, Any] | None
+    failure_class: str | None = None
+    failure_details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -89,6 +91,8 @@ class HarnessTaskResult:
             "expected_stabilized": self.expected_stabilized,
             "failure": self.failure,
             "mutation_report": self.mutation_report,
+            "failure_class": self.failure_class,
+            "failure_details": self.failure_details,
         }
 
 
@@ -409,6 +413,7 @@ def _run_live_task(
             )
             mutation_report = report.to_dict()
         failure = None if result.stabilized else f"live provider task did not stabilize using config {config_path}"
+        failure_class = None if result.stabilized else "not_stabilized"
         return HarnessTaskResult(
             task_id=task.task_id,
             status="pass" if result.stabilized else "fail",
@@ -418,9 +423,11 @@ def _run_live_task(
             expected_stabilized=True,
             failure=failure,
             mutation_report=mutation_report,
+            failure_class=failure_class,
         )
     except Exception as exc:  # noqa: BLE001 - provider boundary failures are evidence.
         artifact_digest = artifact_digest or _latest_thread_artifact_digest(runtime, thread_id)
+        failure_details = _failure_details(exc)
         return HarnessTaskResult(
             task_id=task.task_id,
             status="fail",
@@ -430,7 +437,29 @@ def _run_live_task(
             expected_stabilized=True,
             failure=str(exc),
             mutation_report=None,
+            failure_class=_failure_class(exc, failure_details),
+            failure_details=failure_details,
         )
+
+
+def _failure_details(exc: Exception) -> dict[str, Any] | None:
+    diagnostic = getattr(exc, "diagnostic", None)
+    return diagnostic if isinstance(diagnostic, dict) else None
+
+
+def _failure_class(exc: Exception, details: dict[str, Any] | None) -> str:
+    if details is not None:
+        failure_class = details.get("failure_class")
+        if isinstance(failure_class, str) and failure_class:
+            return failure_class
+    text = str(exc)
+    if "checkable_oracle kind" in text or "missing required key" in text:
+        return "schema_mismatch"
+    if "Provider did not return valid JSON" in text or "invalid JSON" in text:
+        return "malformed_json"
+    if "MCP tool returned isError=true" in text:
+        return "mcp_tool_error"
+    return "runtime_exception"
 
 
 def _latest_thread_artifact_digest(runtime: Runtime, thread_id: str | None) -> str | None:

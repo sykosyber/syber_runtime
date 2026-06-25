@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from syberruntime import (  # noqa: E402
+    AdapterError,
     IntentMetadata,
     ModelSpec,
     Runtime,
@@ -254,6 +255,46 @@ class AgentHarnessTests(unittest.TestCase):
             assert result.artifact_digest is not None
             self.assertEqual(runtime.blobs.get_text(result.artifact_digest), LIVE_SMOKE_ARTIFACT_CONTENT)
 
+    def test_live_harness_records_structured_provider_failure_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Runtime(Path(tmp) / "runtime")
+            metadata = IntentMetadata(
+                intent_source="agent",
+                principal="test-live-agent",
+                acceptance_authority="provider-verifier-and-deterministic-oracle",
+                benchmark_id="bench-live",
+                harness_run_id="run-live",
+            )
+
+            result = _run_live_task(
+                runtime=runtime,
+                metadata=metadata,
+                config_path="diagnostic-config",
+                task=live_smoke_task(),
+                planner=_DiagnosticFailingAdapter(
+                    role="planner",
+                    diagnostic={
+                        "failure_class": "malformed_json",
+                        "attempts": [
+                            {
+                                "attempt_number": 1,
+                                "raw_response_preview": "not valid json",
+                                "raw_response_sha256": "digest",
+                            }
+                        ],
+                    },
+                ),
+                generator=_scripted_adapter("generator", "generator-family", {}),
+                verifier=_scripted_adapter("verifier", "verifier-family", {}),
+            )
+
+            self.assertEqual(result.status, "fail")
+            self.assertEqual(result.failure_class, "malformed_json")
+            self.assertIsNotNone(result.failure_details)
+            assert result.failure_details is not None
+            self.assertEqual(result.failure_details["attempts"][0]["raw_response_preview"], "not valid json")
+            self.assertEqual(result.to_dict()["failure_class"], "malformed_json")
+
 
 def _configure_mock_mcp_environment() -> None:
     repo = Path(__file__).resolve().parents[1]
@@ -270,6 +311,19 @@ def _scripted_adapter(role: str, family: str, payload: dict) -> ScriptedModelAda
         spec=ModelSpec(model_id=f"test-{role}", family=family, roles=(role,)),
         responses=(payload,),
     )
+
+
+class _DiagnosticFailingAdapter:
+    def __init__(self, *, role: str, diagnostic: dict) -> None:
+        self._spec = ModelSpec(model_id=f"failing-{role}", family="failing-family", roles=(role,))
+        self.diagnostic = diagnostic
+
+    @property
+    def spec(self) -> ModelSpec:
+        return self._spec
+
+    def call(self, _request: object) -> object:
+        raise AdapterError("MCP tool returned isError=true", diagnostic=self.diagnostic)
 
 
 if __name__ == "__main__":

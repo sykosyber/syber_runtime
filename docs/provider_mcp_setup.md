@@ -17,6 +17,8 @@ model inference remains external and replaceable.
 | Planner operation-verb validation | v0.6 section 3.1 defines the open versioned verb set; v1 section 4.3 requires the planner to emit a typed operation graph. |
 | Generator exact-content prompting | v0.6 section 3.1 requires generated artifacts to incur explicit verification debt; v1 section 4.1 requires the artifact payload to be strict JSON. Exact-content prompts must distinguish JSON escapes from literal artifact bytes before verification. |
 | Verifier oracle-shape prompting | v0.6 section 3.5 prefers deterministic checks and names false discharge as a first-class failure; v1 section 4.2 requires a checkable oracle before trust is discharged. |
+| Contextual provider retry | v1 Phase 2 requires a live MCP loop that can survive provider variability; v1 section 4 requires strict role contracts; v1 section 7 requires recoverable measured progress rather than demo-only success. |
+| Provider failure taxonomy and raw-attempt capture | v0.6 section 3.8 requires inspectable provenance; v1 section 7 requires a fresh reviewer to trace failures and artifacts in minutes. |
 
 ## Available Providers
 
@@ -74,6 +76,14 @@ Then run the release-gate check with the same provider config:
 - Provider responses are accepted only as JSON objects. The endpoint can recover
   a single balanced JSON object from harmless prose wrapping, but arrays and
   malformed objects remain contract failures.
+- Malformed JSON, non-object payloads, and role-schema mismatches receive one
+  contextual retry by default. The retry prompt includes the previous
+  `failure_class`, parse/schema message, raw response digest, bounded raw
+  preview, role, provider, and attempt number. The retry still must return a
+  fresh strict JSON object; SyberRuntime never silently repairs payloads.
+- If the retry is exhausted, the MCP error is fail-closed with structured
+  diagnostics. Harness reports preserve the `failure_class` and diagnostic
+  attempt records so provider-boundary failures can be measured over time.
 - Planner steps must use SyberRuntime operation verbs: `Feature`, `Test`,
   `Refactor`, `Research`, `Verify`, `Compress`, `Simulate`, or `Stabilize`.
   Informal verbs such as "Design" or "Summarize" are rejected before they can

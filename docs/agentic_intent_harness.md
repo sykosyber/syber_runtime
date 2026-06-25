@@ -17,6 +17,7 @@ records who or what originated the intent and how acceptance was judged.
 | Live provider smoke task | v1 Phase 2 requires real AI via MCP; v1 Phase 3 requires measured outcomes; v0.6 section 3.1 requires typed Feature -> Verify grammar. | Implemented as one exact local text artifact plus deterministic `text_equals` verification. |
 | Live `scale3` provider campaign | v1 Phase 3 requires measured scaling evidence; v0.6 section 3.6 frames requisite variety as matching generative variety with verification capacity; v0.6 section 3.8 requires inspectable provenance. | Implemented as three exact local text artifacts, each independently planned, generated, verified, stabilized, and mutation-measured in one report. |
 | Failed-run evidence preservation | v0.6 section 3.8 requires inspectable provenance; v1 section 7 requires a fresh reader to trace an artifact's making in minutes. | Failed live runs preserve `thread_id` and `artifact_digest` when those exist, rather than collapsing partial progress into an opaque failure. |
+| Provider failure taxonomy in reports | v0.6 section 3.8 requires inspectable provenance; v1 Phase 3 requires measured outcomes; v1 section 7 requires failures to be traceable rather than anecdotal. | Live task results include `failure_class` and provider diagnostics when the MCP boundary exposes them. |
 | Human acceptance checkpoint | v0.6 section 1 frames human understanding as the protected resource; agentic intent can originate work, but institutional claims still need accountable review. | Deferred from v0 automation; report review remains human. |
 
 ## Inference
@@ -119,7 +120,9 @@ The scripted baseline harness report should show:
 
 Live-mode reports are additional evidence. They may pass or fail depending on
 provider availability and model output quality; failures are valid evidence and
-should not replace the scripted baseline.
+should not replace the scripted baseline. Failed live tasks should include a
+`failure_class`; provider-boundary failures may also include bounded raw-attempt
+diagnostics under `failure_details`.
 `acceptance-check` reports this as `agentic_intent_harness_live_smoke`.
 
 ## Risk Boundary

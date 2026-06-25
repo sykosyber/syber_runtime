@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from syberruntime import FixedPolicy, Runtime, load_adapter_bundle  # noqa: E402
 from syberruntime.ai_contracts import PlannerOutput, VerifierOutput  # noqa: E402
 from syberruntime.errors import ModelContractError  # noqa: E402
-from syberruntime.provider_mcp import _extract_json_payload, _user_prompt  # noqa: E402
+from syberruntime.provider_mcp import ProviderMCPError, _extract_json_payload, _user_prompt, call_provider  # noqa: E402
 
 
 class ProviderMCPTests(unittest.TestCase):
@@ -145,6 +145,88 @@ class ProviderMCPTests(unittest.TestCase):
                 self.assertIn("provider-token", runtime.blobs.get_text(result.artifact_digest))
                 self.assertEqual(provider.request_count, 3)
 
+    def test_provider_mcp_retries_malformed_role_payload_with_error_context(self) -> None:
+        with _FakeProviderServer("openai", malformed_once_role="generator") as provider:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _set_pythonpath()
+                os.environ["SYBERRUNTIME_TEST_API_KEY"] = "test-key"
+                config = _write_provider_config(
+                    root,
+                    provider="openai_compatible",
+                    base_url=provider.base_url,
+                )
+                bundle = load_adapter_bundle(config)
+                runtime = Runtime(root / "runtime", policy=FixedPolicy(default_profile="production"))
+
+                result = runtime.run_ai_loop(
+                    intent="Provider MCP retry smoke",
+                    artifact_name="provider.txt",
+                    planner=bundle.planner,
+                    generator=bundle.generator,
+                    verifier=bundle.verifier,
+                )
+
+                self.assertTrue(result.stabilized)
+                self.assertEqual(provider.request_count, 4)
+                self.assertIn("Previous provider attempt failed", provider.prompts[-2])
+                self.assertIn("failure_class", provider.prompts[-2])
+
+    def test_provider_mcp_retries_schema_mismatch_with_error_context(self) -> None:
+        with _FakeProviderServer("openai", schema_mismatch_once_role="verifier") as provider:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _set_pythonpath()
+                os.environ["SYBERRUNTIME_TEST_API_KEY"] = "test-key"
+                config = _write_provider_config(
+                    root,
+                    provider="openai_compatible",
+                    base_url=provider.base_url,
+                )
+                bundle = load_adapter_bundle(config)
+                runtime = Runtime(root / "runtime", policy=FixedPolicy(default_profile="production"))
+
+                result = runtime.run_ai_loop(
+                    intent="Provider MCP schema retry smoke",
+                    artifact_name="provider.txt",
+                    planner=bundle.planner,
+                    generator=bundle.generator,
+                    verifier=bundle.verifier,
+                )
+
+                self.assertTrue(result.stabilized)
+                self.assertEqual(provider.request_count, 4)
+                self.assertIn('"failure_class": "schema_mismatch"', provider.prompts[-1])
+
+    def test_provider_mcp_preserves_attempt_diagnostics_after_retry_exhaustion(self) -> None:
+        with _FakeProviderServer("openai", always_malformed_role="generator") as provider:
+            os.environ["SYBERRUNTIME_TEST_API_KEY"] = "test-key"
+            with self.assertRaisesRegex(ProviderMCPError, "after 2 attempt") as raised:
+                call_provider(
+                    {
+                        "provider": "openai_compatible",
+                        "api_key_env": "SYBERRUNTIME_TEST_API_KEY",
+                        "base_url": provider.base_url,
+                        "model": {
+                            "model_id": "retry-generator",
+                            "family": "test",
+                            "roles": ["generator"],
+                        },
+                        "request": {
+                            "role": "generator",
+                            "operation_type": "Feature",
+                            "system": "runtime",
+                            "payload": {"intent": "create provider token", "artifact_name": "provider.txt"},
+                        },
+                    }
+                )
+
+            diagnostic = raised.exception.diagnostic()
+            self.assertEqual(diagnostic["failure_class"], "malformed_json")
+            self.assertEqual(len(diagnostic["attempts"]), 2)
+            self.assertEqual(diagnostic["attempts"][0]["raw_response_preview"], "not valid json")
+            self.assertIn("raw_response_sha256", diagnostic["attempts"][0])
+
     def test_provider_mcp_google_and_anthropic_response_shapes(self) -> None:
         for shape, provider_name in (("google", "google"), ("anthropic", "anthropic")):
             with self.subTest(shape=shape):
@@ -174,9 +256,22 @@ class ProviderMCPTests(unittest.TestCase):
 
 
 class _FakeProviderServer:
-    def __init__(self, shape: str) -> None:
+    def __init__(
+        self,
+        shape: str,
+        *,
+        malformed_once_role: str | None = None,
+        schema_mismatch_once_role: str | None = None,
+        always_malformed_role: str | None = None,
+    ) -> None:
         self.shape = shape
+        self.malformed_once_role = malformed_once_role
+        self.schema_mismatch_once_role = schema_mismatch_once_role
+        self.always_malformed_role = always_malformed_role
         self.request_count = 0
+        self.prompts: list[str] = []
+        self._malformed_once_sent = False
+        self._schema_mismatch_once_sent = False
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -199,15 +294,26 @@ class _FakeProviderServer:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 role = _role_from_provider_body(body, outer.shape)
+                outer.prompts.append(_prompt_from_provider_body(body, outer.shape))
                 payload = _payload_for_role(role)
+                if outer.always_malformed_role == role:
+                    provider_text = "not valid json"
+                elif outer.malformed_once_role == role and not outer._malformed_once_sent:
+                    outer._malformed_once_sent = True
+                    provider_text = "not valid json"
+                elif outer.schema_mismatch_once_role == role and not outer._schema_mismatch_once_sent:
+                    outer._schema_mismatch_once_sent = True
+                    provider_text = json.dumps({"verdict": "pass"})
+                else:
+                    provider_text = json.dumps(payload)
                 if outer.shape == "google":
                     response: dict[str, Any] = {
-                        "candidates": [{"content": {"parts": [{"text": json.dumps(payload)}]}}]
+                        "candidates": [{"content": {"parts": [{"text": provider_text}]}}]
                     }
                 elif outer.shape == "anthropic":
-                    response = {"content": [{"type": "text", "text": json.dumps(payload)}]}
+                    response = {"content": [{"type": "text", "text": provider_text}]}
                 else:
-                    response = {"choices": [{"message": {"content": json.dumps(payload)}}]}
+                    response = {"choices": [{"message": {"content": provider_text}}]}
                 encoded = json.dumps(response).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -232,15 +338,18 @@ class _FakeProviderServer:
 
 
 def _role_from_provider_body(body: dict[str, Any], shape: str) -> str:
-    if shape == "google":
-        text = body["contents"][0]["parts"][0]["text"]
-    elif shape == "anthropic":
-        text = body["messages"][0]["content"]
-    else:
-        text = body["messages"][1]["content"]
+    text = _prompt_from_provider_body(body, shape)
     marker = "SyberRuntime request:\n"
     request = json.loads(text.split(marker, 1)[1])
     return str(request["role"])
+
+
+def _prompt_from_provider_body(body: dict[str, Any], shape: str) -> str:
+    if shape == "google":
+        return str(body["contents"][0]["parts"][0]["text"])
+    elif shape == "anthropic":
+        return str(body["messages"][0]["content"])
+    return str(body["messages"][1]["content"])
 
 
 def _payload_for_role(role: str) -> dict[str, Any]:

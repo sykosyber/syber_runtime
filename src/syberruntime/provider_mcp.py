@@ -8,6 +8,7 @@ returns the strict role payload as MCP `structuredContent`.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import re
@@ -18,15 +19,36 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from syberruntime.ai_contracts import GeneratorOutput, PlannerOutput, VerifierOutput
+from syberruntime.errors import ModelContractError
+
 
 TOOL_NAME = "syberruntime_model_call"
 PROTOCOL_VERSION = "2025-06-18"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_TIMEOUT_SECONDS = 120.0
+DEFAULT_CONTRACT_RETRIES = 1
+RAW_RESPONSE_PREVIEW_CHARS = 1200
 
 
 class ProviderMCPError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_class: str = "provider_error",
+        attempts: tuple[dict[str, Any], ...] = (),
+    ) -> None:
+        super().__init__(message)
+        self.failure_class = failure_class
+        self.attempts = attempts
+
+    def diagnostic(self) -> dict[str, Any]:
+        return {
+            "message": str(self),
+            "failure_class": self.failure_class,
+            "attempts": list(self.attempts),
+        }
 
 
 @dataclass(frozen=True)
@@ -109,10 +131,12 @@ def _handle_tool_call(message: dict[str, Any]) -> dict[str, Any]:
     try:
         payload = call_provider(arguments)
     except ProviderMCPError as exc:
+        diagnostic = exc.diagnostic()
         return {
             "jsonrpc": "2.0",
             "id": message.get("id"),
             "result": {
+                "structuredContent": {"error": diagnostic},
                 "content": [{"type": "text", "text": str(exc)}],
                 "isError": True,
             },
@@ -132,25 +156,77 @@ def call_provider(arguments: dict[str, Any]) -> dict[str, Any]:
     model = _require_object(arguments, "model")
     request = _require_object(arguments, "request")
     config = _provider_config(arguments)
-    prompt = _user_prompt(request)
     model_id = str(arguments.get("provider_model") or model.get("model_id"))
+    max_contract_retries = _max_contract_retries(arguments)
+    attempts: list[dict[str, Any]] = []
+    retry_context: dict[str, Any] | None = None
 
+    for attempt_number in range(max_contract_retries + 1):
+        prompt = _user_prompt(request, retry_context=retry_context)
+        try:
+            text = _call_provider_text(config, model_id=model_id, system=str(request["system"]), prompt=prompt)
+        except ProviderMCPError as exc:
+            if attempts:
+                raise ProviderMCPError(
+                    str(exc),
+                    failure_class=exc.failure_class,
+                    attempts=tuple(attempts),
+                ) from exc
+            raise
+        try:
+            payload = _extract_json_payload(text)
+            _validate_role_payload(str(request["role"]), payload)
+            return payload
+        except ProviderMCPError as exc:
+            if exc.failure_class not in {"malformed_json", "payload_not_object", "schema_mismatch"}:
+                raise
+            attempt = _provider_attempt_record(
+                attempt_number=attempt_number + 1,
+                retry_context_injected=retry_context is not None,
+                role=str(request["role"]),
+                provider=config.provider,
+                model_id=model_id,
+                error=exc,
+                raw_response=text,
+            )
+            attempts.append(attempt)
+            if attempt_number >= max_contract_retries:
+                raise ProviderMCPError(
+                    (
+                        "Provider did not return an acceptable SyberRuntime JSON payload after "
+                        f"{len(attempts)} attempt(s); failure_class={exc.failure_class}"
+                    ),
+                    failure_class=exc.failure_class,
+                    attempts=tuple(attempts),
+                ) from exc
+            retry_context = attempt
+
+    raise ProviderMCPError("Provider retry loop exited unexpectedly", attempts=tuple(attempts))
+
+
+def _call_provider_text(config: ProviderConfig, *, model_id: str, system: str, prompt: str) -> str:
     if config.provider in {"openai", "deepseek", "openai_compatible"}:
-        text = _call_openai_compatible(config, model_id=model_id, system=str(request["system"]), prompt=prompt)
-    elif config.provider == "anthropic":
-        text = _call_anthropic(config, model_id=model_id, system=str(request["system"]), prompt=prompt)
-    elif config.provider == "google":
-        text = _call_google(config, model_id=model_id, system=str(request["system"]), prompt=prompt)
-    else:
-        raise ProviderMCPError(f"Unsupported provider: {config.provider}")
+        return _call_openai_compatible(config, model_id=model_id, system=system, prompt=prompt)
+    if config.provider == "anthropic":
+        return _call_anthropic(config, model_id=model_id, system=system, prompt=prompt)
+    if config.provider == "google":
+        return _call_google(config, model_id=model_id, system=system, prompt=prompt)
+    raise ProviderMCPError(f"Unsupported provider: {config.provider}", failure_class="unsupported_provider")
 
-    return _extract_json_payload(text)
+
+def _max_contract_retries(arguments: dict[str, Any]) -> int:
+    value = arguments.get("provider_contract_retries", DEFAULT_CONTRACT_RETRIES)
+    try:
+        retries = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ProviderMCPError("provider_contract_retries must be an integer", failure_class="invalid_config") from exc
+    return max(0, retries)
 
 
 def _provider_config(arguments: dict[str, Any]) -> ProviderConfig:
     provider = str(arguments.get("provider", "")).strip().lower()
     if not provider:
-        raise ProviderMCPError("Provider argument is required")
+        raise ProviderMCPError("Provider argument is required", failure_class="invalid_config")
 
     api_key_env = arguments.get("api_key_env")
     if not isinstance(api_key_env, str) or not api_key_env:
@@ -162,11 +238,11 @@ def _provider_config(arguments: dict[str, Any]) -> ProviderConfig:
             "openai_compatible": "OPENAI_COMPATIBLE_API_KEY",
         }.get(provider, "")
     if not api_key_env:
-        raise ProviderMCPError(f"Provider {provider} requires api_key_env")
+        raise ProviderMCPError(f"Provider {provider} requires api_key_env", failure_class="invalid_config")
 
     extra_body = arguments.get("extra_body", {})
     if not isinstance(extra_body, dict):
-        raise ProviderMCPError("extra_body must be a JSON object")
+        raise ProviderMCPError("extra_body must be a JSON object", failure_class="invalid_config")
     return ProviderConfig(
         provider=provider,
         api_key_env=api_key_env,
@@ -191,7 +267,10 @@ def _call_openai_compatible(config: ProviderConfig, *, model_id: str, system: st
             "openai_compatible": "",
         }[config.provider]
         if not base_url:
-            raise ProviderMCPError("openai_compatible provider requires base_url or endpoint")
+            raise ProviderMCPError(
+                "openai_compatible provider requires base_url or endpoint",
+                failure_class="invalid_config",
+            )
         endpoint = base_url.rstrip("/") + "/chat/completions"
 
     body: dict[str, Any] = {
@@ -216,7 +295,10 @@ def _call_openai_compatible(config: ProviderConfig, *, model_id: str, system: st
     try:
         return str(data["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError) as exc:
-        raise ProviderMCPError(f"Provider response missing chat content: {data}") from exc
+        raise ProviderMCPError(
+            f"Provider response missing chat content: {data}",
+            failure_class="provider_response_shape",
+        ) from exc
 
 
 def _call_anthropic(config: ProviderConfig, *, model_id: str, system: str, prompt: str) -> str:
@@ -241,8 +323,14 @@ def _call_anthropic(config: ProviderConfig, *, model_id: str, system: str, promp
             if item.get("type") == "text":
                 return str(item["text"])
     except (KeyError, TypeError) as exc:
-        raise ProviderMCPError(f"Anthropic response missing text content: {data}") from exc
-    raise ProviderMCPError(f"Anthropic response had no text content: {data}")
+        raise ProviderMCPError(
+            f"Anthropic response missing text content: {data}",
+            failure_class="provider_response_shape",
+        ) from exc
+    raise ProviderMCPError(
+        f"Anthropic response had no text content: {data}",
+        failure_class="provider_response_shape",
+    )
 
 
 def _call_google(config: ProviderConfig, *, model_id: str, system: str, prompt: str) -> str:
@@ -268,12 +356,15 @@ def _call_google(config: ProviderConfig, *, model_id: str, system: str, prompt: 
         parts = data["candidates"][0]["content"]["parts"]
         return "".join(str(part.get("text", "")) for part in parts)
     except (KeyError, IndexError, TypeError) as exc:
-        raise ProviderMCPError(f"Google response missing candidate text: {data}") from exc
+        raise ProviderMCPError(
+            f"Google response missing candidate text: {data}",
+            failure_class="provider_response_shape",
+        ) from exc
 
 
-def _user_prompt(request: dict[str, Any]) -> str:
+def _user_prompt(request: dict[str, Any], retry_context: dict[str, Any] | None = None) -> str:
     role = str(request["role"])
-    return (
+    prompt = (
         "Return only one JSON object. Do not include Markdown fences, prose, prefaces, or commentary.\n"
         "You are operating inside SyberRuntime. Produce only the requested role payload; do not design "
         "external cloud services, provider integrations, credentials, APIs, repositories, or storage unless "
@@ -281,9 +372,15 @@ def _user_prompt(request: dict[str, Any]) -> str:
         f"Role: {role}\n"
         f"Required JSON schema summary: {_schema_summary(role)}\n"
         f"Role-specific constraints: {_role_constraints(role, request)}\n"
-        "SyberRuntime request:\n"
-        f"{json.dumps(request, sort_keys=True)}"
     )
+    if retry_context is not None:
+        prompt += (
+            "Previous provider attempt failed before SyberRuntime acceptance.\n"
+            f"Failure context: {json.dumps(retry_context, sort_keys=True)}\n"
+            "Return a fresh complete payload for the same role. Do not explain or summarize the failure. "
+            "Do not quote the previous response. Return only one valid JSON object matching the schema.\n"
+        )
+    return prompt + "SyberRuntime request:\n" + f"{json.dumps(request, sort_keys=True)}"
 
 
 def _schema_summary(role: str) -> str:
@@ -377,6 +474,45 @@ def _exact_content_from_intent(intent: str) -> str | None:
     return value
 
 
+def _validate_role_payload(role: str, payload: dict[str, Any]) -> None:
+    try:
+        if role == "planner":
+            PlannerOutput.from_payload(payload)
+        elif role == "generator":
+            GeneratorOutput.from_payload(payload)
+        elif role == "verifier":
+            VerifierOutput.from_payload(payload)
+    except ModelContractError as exc:
+        raise ProviderMCPError(str(exc), failure_class="schema_mismatch") from exc
+
+
+def _provider_attempt_record(
+    *,
+    attempt_number: int,
+    retry_context_injected: bool,
+    role: str,
+    provider: str,
+    model_id: str,
+    error: ProviderMCPError,
+    raw_response: str,
+) -> dict[str, Any]:
+    encoded = raw_response.encode("utf-8", errors="replace")
+    preview = raw_response[:RAW_RESPONSE_PREVIEW_CHARS]
+    return {
+        "attempt_number": attempt_number,
+        "retry_context_injected": retry_context_injected,
+        "role": role,
+        "provider": provider,
+        "model_id": model_id,
+        "failure_class": error.failure_class,
+        "message": str(error),
+        "raw_response_sha256": hashlib.sha256(encoded).hexdigest(),
+        "raw_response_size_bytes": len(encoded),
+        "raw_response_preview": preview,
+        "raw_response_truncated": len(raw_response) > RAW_RESPONSE_PREVIEW_CHARS,
+    }
+
+
 def _extract_json_payload(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -398,11 +534,17 @@ def _extract_json_payload(text: str) -> dict[str, Any]:
             last_error = exc
             continue
         if not isinstance(payload, dict):
-            raise ProviderMCPError("Provider JSON payload must be an object")
+            raise ProviderMCPError(
+                "Provider JSON payload must be an object",
+                failure_class="payload_not_object",
+            )
         return payload
     if last_error is None:
-        raise ProviderMCPError("Provider did not return valid JSON")
-    raise ProviderMCPError("Provider did not return valid JSON") from last_error
+        raise ProviderMCPError("Provider did not return valid JSON", failure_class="malformed_json")
+    raise ProviderMCPError(
+        f"Provider did not return valid JSON: {last_error.msg}",
+        failure_class="malformed_json",
+    ) from last_error
 
 
 def _first_balanced_json_object(text: str) -> str | None:
@@ -451,15 +593,18 @@ def _post_json(
             data = response.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise ProviderMCPError(f"Provider HTTP {exc.code}: {detail}") from exc
+        raise ProviderMCPError(f"Provider HTTP {exc.code}: {detail}", failure_class="provider_http") from exc
     except urllib.error.URLError as exc:
-        raise ProviderMCPError(f"Provider connection failed: {exc}") from exc
+        raise ProviderMCPError(f"Provider connection failed: {exc}", failure_class="provider_connection") from exc
     try:
         parsed = json.loads(data.decode("utf-8"))
     except json.JSONDecodeError as exc:
-        raise ProviderMCPError("Provider returned invalid JSON response") from exc
+        raise ProviderMCPError(
+            "Provider returned invalid JSON response",
+            failure_class="provider_response_malformed_json",
+        ) from exc
     if not isinstance(parsed, dict):
-        raise ProviderMCPError("Provider response must be a JSON object")
+        raise ProviderMCPError("Provider response must be a JSON object", failure_class="provider_response_not_object")
     return parsed
 
 
@@ -469,7 +614,10 @@ def _api_key(config: ProviderConfig, *, fallback_env: str | None = None) -> str:
         value = os.environ.get(fallback_env)
     if not value:
         env_hint = config.api_key_env if fallback_env is None else f"{config.api_key_env} or {fallback_env}"
-        raise ProviderMCPError(f"Missing provider API key environment variable: {env_hint}")
+        raise ProviderMCPError(
+            f"Missing provider API key environment variable: {env_hint}",
+            failure_class="missing_api_key",
+        )
     return value
 
 
@@ -477,14 +625,14 @@ def _optional_string(value: Any) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise ProviderMCPError("Optional string config value was not a string")
+        raise ProviderMCPError("Optional string config value was not a string", failure_class="invalid_config")
     return value
 
 
 def _require_object(data: dict[str, Any], key: str) -> dict[str, Any]:
     value = data.get(key)
     if not isinstance(value, dict):
-        raise ProviderMCPError(f"Tool argument {key} must be an object")
+        raise ProviderMCPError(f"Tool argument {key} must be an object", failure_class="invalid_tool_arguments")
     return value
 
 

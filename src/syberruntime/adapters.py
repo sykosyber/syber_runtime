@@ -258,6 +258,19 @@ def _payload_from_tool_result(result: Any) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise AdapterError("MCP tools/call result must be a JSON object")
     if result.get("isError") is True:
+        diagnostic: dict[str, Any] | None = None
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict):
+            maybe_error = normalize_json(structured.get("error", structured))
+            if isinstance(maybe_error, dict):
+                diagnostic = maybe_error
+        if diagnostic is not None:
+            failure_class = diagnostic.get("failure_class", "provider_error")
+            message = diagnostic.get("message", "MCP tool returned isError=true")
+            raise AdapterError(
+                f"MCP tool returned isError=true: {message}; failure_class={failure_class}",
+                diagnostic=diagnostic,
+            )
         raise AdapterError(f"MCP tool returned isError=true: {result}")
 
     structured = result.get("structuredContent")

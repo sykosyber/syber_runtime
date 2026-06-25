@@ -16,6 +16,7 @@ the model endpoint remains external.
 | `examples/mock_mcp_server.py` | v1 section 6 risk mitigation: a protocol-shaped local fixture keeps the configured path testable without claiming real AI evidence. |
 | `syberruntime.provider_mcp` | v1 Phase 2 and v1 section 7 require the MCP loop to reach real model providers while preserving the external inference boundary. |
 | Strict role-payload validation | v0.6 section 3.1 defines typed operation verbs and no unverified generation; v1 sections 4.1-4.3 require strict planner/generator/verifier contracts. |
+| Contextual retry and failure diagnostics | v0.6 section 3.8 requires inspectable provenance; v1 Phase 2 requires a recoverable MCP boundary; v1 section 7 requires measured evidence for failures as well as successes. |
 
 ## Config Shape
 
@@ -92,6 +93,14 @@ The tool result must return the strict SyberRuntime role payload as
   `sha256_equals`, and must include string `expected`
 
 The runtime validates those payloads before recording operations.
+
+The packaged provider MCP endpoint performs one contextual retry by default
+when a provider returns malformed JSON, a non-object payload, or a role payload
+that fails the strict planner/generator/verifier schema. The retry prompt
+includes structured error context and a bounded raw-response preview, but it
+does not repair the payload locally. If the retry is exhausted, the MCP result
+uses `isError=true` and returns structured diagnostics under
+`structuredContent.error` with a `failure_class` and attempt records.
 
 ## Smoke Commands
 
