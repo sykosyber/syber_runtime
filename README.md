@@ -82,7 +82,8 @@ configuration and study execution.
 The scripted Agentic Intent Harness baseline is audited separately and should
 pass in the local tree.
 Live-mode Agentic Intent Harness reports are also audited separately; absence is
-a warning until a live smoke report is intentionally generated.
+a warning until a live smoke report is intentionally generated. The passing
+three-task live scale campaign is audited as `live_scale3_campaign`.
 
 Run the configured adapter smoke path:
 

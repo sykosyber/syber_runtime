@@ -131,7 +131,9 @@ provider availability and model output quality; failures are valid evidence and
 should not replace the scripted baseline. Failed live tasks should include a
 `failure_class`; provider-boundary failures may also include bounded raw-attempt
 diagnostics under `failure_details`.
-`acceptance-check` reports this as `agentic_intent_harness_live_smoke`.
+`acceptance-check` reports aggregate live evidence as
+`agentic_intent_harness_live_smoke` and the stricter three-task campaign as
+`live_scale3_campaign`.
 
 ## Risk Boundary
 

@@ -13,6 +13,7 @@ from syberruntime import (  # noqa: E402
     FixedPolicy,
     Runtime,
     create_dogfood_report,
+    default_live_scale_tasks,
     load_adapter_bundle,
     run_v1_acceptance_audit,
     run_live_agent_harness,
@@ -107,6 +108,14 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
                 config_path=config,
             )
             write_harness_report(live_harness_report, harness_report_dir / "live-report.json")
+            scale3_report = run_live_agent_harness(
+                runtime_root=root / "live-scale3-runtime",
+                protocol_path=root / "agentic_protocol.md",
+                run_id="acceptance-live-scale3-fixture",
+                config_path=config,
+                tasks=default_live_scale_tasks(),
+            )
+            write_harness_report(scale3_report, harness_report_dir / "scale3-report.json")
             docs = root / "docs"
             docs.mkdir()
             (docs / "rq0_rq6_preregistration.md").write_text("protocol", encoding="utf-8")
@@ -129,13 +138,29 @@ def _write_mcp_server(root: Path) -> Path:
     server.write_text(
         """
 import json
+import ast
+import re
 import sys
 
 def send(message):
     print(json.dumps(message), flush=True)
 
 
-def model_payload(role):
+def exact_content(intent):
+    match = re.search(r"content is exactly (?P<literal>'(?:\\\\.|[^'])*'|\\\"(?:\\\\.|[^\\\"])*\\\")", intent)
+    if match is None:
+        return None
+    try:
+        value = ast.literal_eval(match.group("literal"))
+    except (SyntaxError, ValueError):
+        return None
+    return value if isinstance(value, str) else None
+
+
+def model_payload(role, request):
+    payload = request.get("payload", {})
+    intent = payload.get("intent", "") if isinstance(payload, dict) else ""
+    expected = exact_content(str(intent))
     if role == "planner":
         return {
             "steps": [
@@ -165,10 +190,17 @@ def model_payload(role):
                 }
             ],
             "plan": "Emit the configured token.",
-            "artifact": "configured-token\\n",
+            "artifact": expected if expected is not None else "configured-token\\n",
             "self_identified_risks": ["The token could be omitted."],
         }
     if role == "verifier":
+        if expected is not None:
+            return {
+                "checkable_oracle": {"kind": "text_equals", "expected": expected},
+                "verdict": "pass",
+                "located_errors": [],
+                "obligation_discharged": True,
+            }
         return {
             "checkable_oracle": {"kind": "text_contains", "expected": "configured-token"},
             "verdict": "pass",
@@ -196,8 +228,9 @@ for line in sys.stdin:
     elif method == "notifications/initialized":
         continue
     elif method == "tools/call":
-        role = message["params"]["arguments"]["request"]["role"]
-        payload = model_payload(role)
+        request = message["params"]["arguments"]["request"]
+        role = request["role"]
+        payload = model_payload(role, request)
         send(
             {
                 "jsonrpc": "2.0",

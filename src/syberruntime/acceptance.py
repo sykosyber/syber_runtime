@@ -262,6 +262,7 @@ def _audit_workspace_artifacts(
         _audit_dogfood_reports(dogfood_report_dir),
         _audit_agent_harness_reports(agent_harness_report_dir),
         _audit_live_agent_harness_reports(agent_harness_report_dir),
+        _audit_live_scale3_campaign(agent_harness_report_dir),
     ]
     return criteria
 
@@ -408,6 +409,117 @@ def _audit_live_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
             f"attempted_tasks={attempted}, stabilized_tasks={stabilized}, failed_tasks={failed_tasks}"
         ),
     )
+
+
+def _audit_live_scale3_campaign(report_dir: Path) -> AcceptanceCriterion:
+    reports = discover_harness_reports(report_dir)
+    if not reports:
+        return AcceptanceCriterion(
+            id="live_scale3_campaign",
+            status="warn",
+            citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+            evidence="no agentic harness reports were found, so no live scale3 campaign evidence is available",
+        )
+    try:
+        loaded = [load_harness_report(path) for path in reports]
+    except (OSError, ValueError, KeyError) as exc:
+        return AcceptanceCriterion(
+            id="live_scale3_campaign",
+            status="fail",
+            citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+            evidence=f"agentic harness report directory contains an invalid report: {exc}",
+        )
+    scale3_reports = [
+        report
+        for report in loaded
+        if str(report.get("mode", "scripted")) == "live" and "scale3" in str(report.get("run_id", ""))
+    ]
+    if not scale3_reports:
+        return AcceptanceCriterion(
+            id="live_scale3_campaign",
+            status="warn",
+            citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+            evidence="live harness reports exist, but no live scale3 campaign report was found",
+        )
+    passing = [report for report in scale3_reports if _live_scale3_report_passes(report)]
+    if not passing:
+        return AcceptanceCriterion(
+            id="live_scale3_campaign",
+            status="fail",
+            citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+            evidence=f"{len(scale3_reports)} live scale3 campaign report(s) found, but none satisfied the gate",
+        )
+    latest = passing[-1]
+    summary = latest["summary"]
+    metrics = latest["metrics"]
+    killed, total = _mutation_totals(latest)
+    return AcceptanceCriterion(
+        id="live_scale3_campaign",
+        status="pass",
+        citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+        evidence=(
+            f"{len(scale3_reports)} live scale3 campaign report(s) found; "
+            f"passing_run={latest['run_id']}; "
+            f"attempted_tasks={summary.get('attempted_tasks')}, "
+            f"stabilized_tasks={summary.get('stabilized_tasks')}, "
+            f"validated_artifacts={metrics.get('validated_artifacts')}, "
+            f"false_discharge_rate={float(metrics.get('false_discharge_rate', 0.0)):.3f}, "
+            f"residual_debt={float(metrics.get('residual_debt', 0.0)):.3f}, "
+            f"mutants_killed={killed}/{total}"
+        ),
+    )
+
+
+def _live_scale3_report_passes(report: dict[str, Any]) -> bool:
+    summary = report.get("summary", {})
+    metrics = report.get("metrics", {})
+    task_results = report.get("task_results", [])
+    if not isinstance(summary, dict) or not isinstance(metrics, dict) or not isinstance(task_results, list):
+        return False
+    attempted = _safe_int(summary.get("attempted_tasks"), 0)
+    stabilized = _safe_int(summary.get("stabilized_tasks"), 0)
+    failed = _safe_int(summary.get("blocked_or_failed_tasks"), 0)
+    validated = _safe_int(metrics.get("validated_artifacts"), 0)
+    if attempted < 3 or stabilized != attempted or failed != 0 or validated < 3:
+        return False
+    if _safe_float(metrics.get("false_discharge_rate"), 1.0) != 0.0:
+        return False
+    if _safe_float(metrics.get("residual_debt"), 1.0) != 0.0:
+        return False
+    if _safe_float(metrics.get("structural_rigor"), 0.0) < 1.0:
+        return False
+    if any(result.get("status") != "pass" or not bool(result.get("stabilized")) for result in task_results):
+        return False
+    killed, total = _mutation_totals(report)
+    return total >= attempted and killed == total
+
+
+def _mutation_totals(report: dict[str, Any]) -> tuple[int, int]:
+    killed = 0
+    total = 0
+    for result in report.get("task_results", []):
+        mutation_report = result.get("mutation_report") if isinstance(result, dict) else None
+        if not isinstance(mutation_report, dict):
+            continue
+        if mutation_report.get("baseline_passed") is False:
+            return killed, total + 1
+        killed += _safe_int(mutation_report.get("killed_count"), 0)
+        total += _safe_int(mutation_report.get("mutant_count"), 0)
+    return killed, total
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _criterion(id: str, passed: bool, citation: str, evidence: str) -> AcceptanceCriterion:

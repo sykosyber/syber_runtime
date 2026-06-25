@@ -24,9 +24,11 @@ class Phase5AcceptanceTests(unittest.TestCase):
         self.assertEqual(criterion_by_id["agentic_intent_harness_baseline"].status, "pass")
         self.assertIn(
             criterion_by_id["agentic_intent_harness_live_smoke"].status,
-            {"pass", "warning"},
+            {"pass", "warn"},
         )
-        self.assertGreaterEqual(len(report.criteria), 14)
+        self.assertEqual(criterion_by_id["live_scale3_campaign"].status, "pass")
+        self.assertIn("agentic-live-scale3-003", criterion_by_id["live_scale3_campaign"].evidence)
+        self.assertGreaterEqual(len(report.criteria), 15)
 
     def test_acceptance_report_is_json_serializable(self) -> None:
         workspace_root = Path(__file__).resolve().parents[1]
