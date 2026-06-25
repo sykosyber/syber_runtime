@@ -103,6 +103,7 @@ The scripted baseline harness report should show:
 Live-mode reports are additional evidence. They may pass or fail depending on
 provider availability and model output quality; failures are valid evidence and
 should not replace the scripted baseline.
+`acceptance-check` reports this as `agentic_intent_harness_live_smoke`.
 
 ## Risk Boundary
 

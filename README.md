@@ -26,6 +26,18 @@ associated:
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m unittest discover -s tests
 ```
 
+Run the full local verification gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
+```
+
+Include mock live-harness wiring without provider calls:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1 -IncludeMockLiveHarness
+```
+
 ## CLI
 
 ```powershell
@@ -68,6 +80,8 @@ live MCP/model execution and real RQ0/RQ6 dogfooding results require external
 configuration and study execution.
 The scripted Agentic Intent Harness baseline is audited separately and should
 pass in the local tree.
+Live-mode Agentic Intent Harness reports are also audited separately; absence is
+a warning until a live smoke report is intentionally generated.
 
 Run the configured adapter smoke path:
 

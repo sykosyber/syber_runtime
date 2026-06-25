@@ -261,6 +261,7 @@ def _audit_workspace_artifacts(
         ),
         _audit_dogfood_reports(dogfood_report_dir),
         _audit_agent_harness_reports(agent_harness_report_dir),
+        _audit_live_agent_harness_reports(agent_harness_report_dir),
     ]
     return criteria
 
@@ -360,6 +361,51 @@ def _audit_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
             f"{len(baseline_reports)} scripted baseline harness report(s) found; "
             f"attempted_tasks={attempted}, stabilized_tasks={stabilized}; "
             f"total_harness_reports={len(loaded)}"
+        ),
+    )
+
+
+def _audit_live_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
+    reports = discover_harness_reports(report_dir)
+    if not reports:
+        return AcceptanceCriterion(
+            id="agentic_intent_harness_live_smoke",
+            status="warn",
+            citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+            evidence="no live-mode agentic harness report was found",
+        )
+    try:
+        loaded = [load_harness_report(path) for path in reports]
+    except (OSError, ValueError, KeyError) as exc:
+        return AcceptanceCriterion(
+            id="agentic_intent_harness_live_smoke",
+            status="fail",
+            citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+            evidence=f"agentic harness report directory contains an invalid report: {exc}",
+        )
+    live_reports = [report for report in loaded if str(report.get("mode", "scripted")) == "live"]
+    if not live_reports:
+        return AcceptanceCriterion(
+            id="agentic_intent_harness_live_smoke",
+            status="warn",
+            citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+            evidence="scripted harness baseline exists, but no live-mode harness report was found",
+        )
+    stabilized = sum(int(report["summary"].get("stabilized_tasks", 0)) for report in live_reports)
+    attempted = sum(int(report["summary"].get("attempted_tasks", 0)) for report in live_reports)
+    failed_tasks = sum(
+        1
+        for report in live_reports
+        for result in report.get("task_results", [])
+        if result.get("status") != "pass"
+    )
+    return AcceptanceCriterion(
+        id="agentic_intent_harness_live_smoke",
+        status="pass",
+        citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
+        evidence=(
+            f"{len(live_reports)} live harness report(s) found; "
+            f"attempted_tasks={attempted}, stabilized_tasks={stabilized}, failed_tasks={failed_tasks}"
         ),
     )
 

@@ -15,6 +15,7 @@ from syberruntime import (  # noqa: E402
     create_dogfood_report,
     load_adapter_bundle,
     run_v1_acceptance_audit,
+    run_live_agent_harness,
     run_scripted_agent_harness,
     write_harness_report,
     write_dogfood_report,
@@ -98,7 +99,14 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
                 protocol_path=root / "agentic_protocol.md",
                 run_id="acceptance-harness-fixture",
             )
-            write_harness_report(harness_report, harness_report_dir / "report.json")
+            write_harness_report(harness_report, harness_report_dir / "scripted-report.json")
+            live_harness_report = run_live_agent_harness(
+                runtime_root=root / "live-harness-runtime",
+                protocol_path=root / "agentic_protocol.md",
+                run_id="acceptance-live-harness-fixture",
+                config_path=config,
+            )
+            write_harness_report(live_harness_report, harness_report_dir / "live-report.json")
             docs = root / "docs"
             docs.mkdir()
             (docs / "rq0_rq6_preregistration.md").write_text("protocol", encoding="utf-8")

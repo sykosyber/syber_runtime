@@ -20,9 +20,10 @@ class Phase5AcceptanceTests(unittest.TestCase):
         self.assertEqual(report.failures, ())
         self.assertIn("live_mcp_real_ai_endpoint", warning_ids)
         self.assertIn("dogfooding_rq0_rq6_results", warning_ids)
+        self.assertIn("agentic_intent_harness_live_smoke", warning_ids)
         criterion_by_id = {criterion.id: criterion for criterion in report.criteria}
         self.assertEqual(criterion_by_id["agentic_intent_harness_baseline"].status, "pass")
-        self.assertGreaterEqual(len(report.criteria), 13)
+        self.assertGreaterEqual(len(report.criteria), 14)
 
     def test_acceptance_report_is_json_serializable(self) -> None:
         workspace_root = Path(__file__).resolve().parents[1]
