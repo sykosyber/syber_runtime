@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from syberruntime.cli import main  # noqa: E402
 from syberruntime import run_v1_acceptance_audit  # noqa: E402
 
 
@@ -40,6 +45,19 @@ class Phase5AcceptanceTests(unittest.TestCase):
         self.assertEqual(report["overall_status"], "ready_with_warnings")
         self.assertEqual(report["warning_count"], 1)
         self.assertTrue(all("citation" in criterion for criterion in report["criteria"]))
+
+    def test_acceptance_check_cli_can_write_report_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "acceptance.json"
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = main(["acceptance-check", "--output", str(output)])
+
+            self.assertEqual(result, 0)
+            data = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(data["failure_count"], 0)
+            self.assertEqual(data["overall_status"], "ready_with_warnings")
+            self.assertTrue(all("citation" in criterion for criterion in data["criteria"]))
 
 
 if __name__ == "__main__":

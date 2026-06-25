@@ -127,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     acceptance_parser.add_argument("--mcp-config", type=Path)
     acceptance_parser.add_argument("--dogfood-report-dir", type=Path)
     acceptance_parser.add_argument("--agent-harness-report-dir", type=Path)
+    acceptance_parser.add_argument("--output", type=Path)
 
     subparsers.add_parser("replay-check")
 
@@ -279,13 +280,14 @@ def main(argv: list[str] | None = None) -> int:
         path = write_scale3_analysis_markdown(analysis, args.output)
         _print_json({"path": str(path), "analysis": analysis.to_dict()})
     elif args.command == "acceptance-check":
-        _print_json(
-            run_v1_acceptance_audit(
-                mcp_config_path=args.mcp_config,
-                dogfood_report_dir=args.dogfood_report_dir,
-                agent_harness_report_dir=args.agent_harness_report_dir,
-            ).to_dict()
+        report = run_v1_acceptance_audit(
+            mcp_config_path=args.mcp_config,
+            dogfood_report_dir=args.dogfood_report_dir,
+            agent_harness_report_dir=args.agent_harness_report_dir,
         )
+        if args.output is not None:
+            _write_json(args.output, report.to_dict())
+        _print_json(report.to_dict())
     elif args.command == "replay-check":
         _print_json({"deterministic": runtime.replay_is_deterministic()})
     else:
@@ -295,6 +297,11 @@ def main(argv: list[str] | None = None) -> int:
 
 def _print_json(value: dict) -> None:
     print(json.dumps(json.loads(canonical_json(value)), indent=2, sort_keys=True))
+
+
+def _write_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(canonical_json(value), encoding="utf-8")
 
 
 def _check_from_args(args: argparse.Namespace) -> dict:

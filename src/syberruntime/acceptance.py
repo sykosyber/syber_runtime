@@ -280,7 +280,7 @@ def _audit_live_mcp_loop(runtime_root: Path, mcp_config_path: str | Path | None)
         bundle = load_adapter_bundle(mcp_config_path)
         runtime = Runtime(runtime_root, policy=FixedPolicy(default_profile="production"))
         result = runtime.run_ai_loop(
-            intent="Acceptance live MCP-configured loop",
+            intent="Create a local text artifact whose content is exactly 'live-mcp-acceptance-token\n'.",
             artifact_name="live-mcp.txt",
             planner=bundle.planner,
             generator=bundle.generator,

@@ -44,32 +44,35 @@ Date: 2026-06-25
    passed. A Doctor Call prototype would add a new control component before the
    next acceptance blocker has been retired.
 
+6. The real MCP config acceptance pass is now recorded.
+   `docs/acceptance_reports/live_mcp_acceptance_001.json` reports
+   `overall_status: pass`, `failure_count: 0`, and `warning_count: 0` with the
+   real MCP config and dogfood evidence supplied.
+
 ## Apex Inference
 
-The next acceptance-bearing work is the live config acceptance pass, not a new
-runtime subsystem. The system has demonstrated live provider scale3 recovery,
-acceptance-gated mutation measurement, and a first n=1 dogfood report under the
-pre-registered RQ0/RQ6 protocol. The remaining release warning is the absence of
-a supplied real MCP/model endpoint config during local acceptance.
+The release-gate evidence path has crossed from `ready_with_warnings` to a
+recorded real-config `pass`. The system has demonstrated live provider scale3
+recovery, acceptance-gated mutation measurement, a first n=1 dogfood report
+under the pre-registered RQ0/RQ6 protocol, and a real MCP/model endpoint
+acceptance pass with zero warnings.
 
 ## Recommended Sequence
 
-1. Perform a live config acceptance pass.
-   Supply the real MCP config to `acceptance-check --mcp-config` so the
-   `live_mcp_real_ai_endpoint` warning can move from warning to pass.
-
-2. Add provider failure analytics only if the next live or dogfood run produces
+1. Add provider failure analytics only if the next live or dogfood run produces
    repeated provider-boundary failures.
    If failures recur, promote the taxonomy into a standalone report before
    adding a Doctor Call recovery path.
 
-3. Defer Doctor Call until the failure analytics show that retry plus contextual
+2. Defer Doctor Call until the failure analytics show that retry plus contextual
    diagnostics are insufficient.
    This keeps the core small and lets the recovery design be driven by observed
    failure classes rather than speculative architecture.
 
 ## Decision
 
-Proceed with live config acceptance next. Dogfooding has moved from pending to
-first-pass evidence; the remaining release-readiness warning is the real
-MCP/model endpoint acceptance run required by v1 Phase 2 and v1 section 7.
+Preserve the current pass state and avoid adding a Doctor Call or larger
+provider analytics subsystem until new repeated failures justify it. The next
+highest-leverage work should be packaging the institutional evidence narrative:
+what passed, under which model capability envelope, and what claims remain n=1
+feasibility rather than population-level effects.

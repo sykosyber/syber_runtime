@@ -76,9 +76,16 @@ $env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli acceptance-check
 ```
 
-Expected local status is `ready_with_warnings`. The remaining warning is
-intentional: live MCP/model execution requires an explicit external provider
-configuration. The first real RQ0/RQ6 dogfood report is present under
+Write the real-config acceptance audit to a canonical JSON artifact:
+
+```powershell
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli acceptance-check --mcp-config examples\mcp_adapter_config.example.json --dogfood-report-dir docs\dogfood_reports --output docs\acceptance_reports\live_mcp_acceptance_001.json
+```
+
+Expected local status without `--mcp-config` is `ready_with_warnings`. With the
+real MCP config and dogfood report supplied, the recorded acceptance artifact is
+`docs/acceptance_reports/live_mcp_acceptance_001.json` with `overall_status:
+pass`. The first real RQ0/RQ6 dogfood report is present under
 `docs/dogfood_reports/rq0_rq6_run_001.json`.
 The scripted Agentic Intent Harness baseline is audited separately and should
 pass in the local tree.
