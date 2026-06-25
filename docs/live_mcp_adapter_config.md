@@ -87,7 +87,9 @@ The tool result must return the strict SyberRuntime role payload as
   `Feature`, `Test`, `Refactor`, `Research`, `Verify`, `Compress`,
   `Simulate`, or `Stabilize`
 - generator: `assumptions`, `plan`, `artifact`, and `self_identified_risks`
-- verifier: `verdict`, `located_errors`, optional `checkable_oracle`
+- verifier: `verdict`, `located_errors`, optional `checkable_oracle`; non-null
+  oracles must use `kind` equal to `text_equals`, `text_contains`, or
+  `sha256_equals`, and must include string `expected`
 
 The runtime validates those payloads before recording operations.
 

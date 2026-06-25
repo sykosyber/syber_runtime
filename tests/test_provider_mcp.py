@@ -44,6 +44,32 @@ class ProviderMCPTests(unittest.TestCase):
         self.assertIn("Do not use informal verbs", prompt)
         self.assertIn("SyberRuntime request:\n", prompt)
 
+    def test_provider_prompt_constrains_verifier_oracle_shape_for_exact_intent(self) -> None:
+        prompt = _user_prompt(
+            {
+                "role": "verifier",
+                "operation_type": "Verify",
+                "system": "runtime",
+                "payload": {
+                    "intent": (
+                        "Create a local SyberRuntime text artifact named agent-live-smoke.txt whose content "
+                        "is exactly 'agent-live-smoke-token\\n', then verify it with a deterministic "
+                        "text_equals oracle."
+                    ),
+                    "artifact": "agent-live-smoke-token\n",
+                    "artifact_digest": "digest",
+                },
+            }
+        )
+
+        self.assertIn('"kind":"text_equals"', prompt)
+        self.assertIn('"kind":"text_contains"', prompt)
+        self.assertIn('"kind":"sha256_equals"', prompt)
+        self.assertIn("must never be empty", prompt)
+        self.assertIn("alternate keys", prompt)
+        self.assertIn('"expected": "agent-live-smoke-token\\n"', prompt)
+        self.assertIn('"kind": "text_equals"', prompt)
+
     def test_planner_contract_rejects_informal_verbs(self) -> None:
         with self.assertRaisesRegex(ModelContractError, "SyberRuntime operation verb"):
             PlannerOutput.from_payload(

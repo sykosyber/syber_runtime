@@ -7,8 +7,10 @@ returns the strict role payload as MCP `structuredContent`.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -278,7 +280,7 @@ def _user_prompt(request: dict[str, Any]) -> str:
         "the request explicitly asks for them.\n"
         f"Role: {role}\n"
         f"Required JSON schema summary: {_schema_summary(role)}\n"
-        f"Role-specific constraints: {_role_constraints(role)}\n"
+        f"Role-specific constraints: {_role_constraints(role, request)}\n"
         "SyberRuntime request:\n"
         f"{json.dumps(request, sort_keys=True)}"
     )
@@ -297,11 +299,15 @@ def _schema_summary(role: str) -> str:
             '"alternatives_considered":str}],"plan":str,"artifact":str,"self_identified_risks":[str]}'
         )
     if role == "verifier":
-        return '{"checkable_oracle":object|null,"verdict":"pass|fail|uncertain","located_errors":[{"where":str,"why":str}],"obligation_discharged":bool}'
+        return (
+            '{"checkable_oracle":{"kind":"text_equals|text_contains|sha256_equals","expected":str}|null,'
+            '"verdict":"pass|fail|uncertain","located_errors":[{"where":str,"why":str}],'
+            '"obligation_discharged":bool}'
+        )
     return "{}"
 
 
-def _role_constraints(role: str) -> str:
+def _role_constraints(role: str, request: dict[str, Any]) -> str:
     if role == "planner":
         return (
             "Plan only SyberRuntime operations. Use exact operation verbs from the schema; for the live "
@@ -314,11 +320,43 @@ def _role_constraints(role: str) -> str:
             "architecture or setup process. If the intent specifies exact text, emit that text verbatim."
         )
     if role == "verifier":
-        return (
-            "Prefer a deterministic checkable_oracle using text_equals for exact content or text_contains "
-            "for substring checks. Use verdict pass only when the oracle is consistent with the artifact."
-        )
+        return _verifier_constraints(request)
     return "Return the requested SyberRuntime role payload."
+
+
+def _verifier_constraints(request: dict[str, Any]) -> str:
+    payload = request.get("payload", {})
+    intent = str(payload.get("intent", "")) if isinstance(payload, dict) else ""
+    expected = _exact_content_from_intent(intent)
+    constraints = (
+        "If checkable_oracle is not null, it must be exactly one of these JSON shapes: "
+        '{"kind":"text_equals","expected":"..."}, {"kind":"text_contains","expected":"..."}, or '
+        '{"kind":"sha256_equals","expected":"..."}. The kind field is required and must never be empty. '
+        "The expected field is required and must be a string. Do not use alternate keys such as type, method, "
+        "check, value, actual, target, or comparator. Use text_equals when the intent specifies exact content. "
+        "Use verdict pass only when the oracle is consistent with the artifact; if the artifact does not meet "
+        "the expected value, keep the same oracle shape, set verdict fail, and add located_errors."
+    )
+    if expected is not None:
+        oracle = {"kind": "text_equals", "expected": expected}
+        constraints += (
+            f" This request states exact expected text {expected!r}; the deterministic oracle must be "
+            f"{json.dumps(oracle, sort_keys=True)}."
+        )
+    return constraints
+
+
+def _exact_content_from_intent(intent: str) -> str | None:
+    match = re.search(r"content is exactly (?P<literal>'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\")", intent)
+    if match is None:
+        return None
+    try:
+        value = ast.literal_eval(match.group("literal"))
+    except (SyntaxError, ValueError):
+        return None
+    if not isinstance(value, str):
+        return None
+    return value
 
 
 def _extract_json_payload(text: str) -> dict[str, Any]:
