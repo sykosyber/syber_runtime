@@ -1,0 +1,56 @@
+{
+  "planner": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "gpt-4.1-mini",
+      "family": "openai",
+      "roles": ["planner"],
+      "strength": "strong"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "-m", "syberruntime.provider_mcp"],
+    "tool_name": "syberruntime_model_call",
+    "arguments": {
+      "provider": "openai",
+      "api_key_env": "OPENAI_API_KEY",
+      "max_tokens": 2048,
+      "temperature": 0
+    },
+    "timeout_seconds": 60
+  },
+  "generator": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "gpt-4.1-mini",
+      "family": "openai",
+      "roles": ["generator"],
+      "strength": "standard"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "-m", "syberruntime.provider_mcp"],
+    "tool_name": "syberruntime_model_call",
+    "arguments": {
+      "provider": "openai",
+      "api_key_env": "OPENAI_API_KEY",
+      "max_tokens": 2048,
+      "temperature": 0
+    },
+    "timeout_seconds": 60
+  },
+  "verifier": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "claude-sonnet-4-5",
+      "family": "anthropic",
+      "roles": ["verifier"],
+      "strength": "strong"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "-m", "syberruntime.provider_mcp"],
+    "tool_name": "syberruntime_model_call",
+    "arguments": {
+      "provider": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "max_tokens": 2048,
+      "temperature": 0
+    },
+    "timeout_seconds": 60
+  }
+}

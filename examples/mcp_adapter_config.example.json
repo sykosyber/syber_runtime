@@ -1,0 +1,56 @@
+{
+  "planner": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "gemini-2.5-pro",
+      "family": "google-gemini",
+      "roles": ["planner"],
+      "strength": "strong"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "-m", "syberruntime.provider_mcp"],
+    "tool_name": "syberruntime_model_call",
+    "arguments": {
+      "provider": "google",
+      "api_key_env": "GOOGLE_API_KEY",
+      "max_tokens": 2048,
+      "temperature": 0
+    },
+    "timeout_seconds": 60
+  },
+  "generator": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "gemini-2.5-flash",
+      "family": "google-gemini",
+      "roles": ["generator"],
+      "strength": "standard"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "-m", "syberruntime.provider_mcp"],
+    "tool_name": "syberruntime_model_call",
+    "arguments": {
+      "provider": "google",
+      "api_key_env": "GOOGLE_API_KEY",
+      "max_tokens": 2048,
+      "temperature": 0
+    },
+    "timeout_seconds": 60
+  },
+  "verifier": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "deepseek-v4-flash",
+      "family": "deepseek",
+      "roles": ["verifier"],
+      "strength": "strong"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "-m", "syberruntime.provider_mcp"],
+    "tool_name": "syberruntime_model_call",
+    "arguments": {
+      "provider": "deepseek",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "max_tokens": 2048,
+      "temperature": 0
+    },
+    "timeout_seconds": 60
+  }
+}

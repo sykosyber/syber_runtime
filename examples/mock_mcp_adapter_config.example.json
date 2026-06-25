@@ -1,0 +1,38 @@
+{
+  "planner": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "mock-planner",
+      "family": "mock-planner-family",
+      "roles": ["planner"],
+      "strength": "strong"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "examples/mock_mcp_server.py"],
+    "tool_name": "syberruntime_model_call",
+    "timeout_seconds": 30
+  },
+  "generator": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "mock-generator",
+      "family": "mock-generator-family",
+      "roles": ["generator"],
+      "strength": "standard"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "examples/mock_mcp_server.py"],
+    "tool_name": "syberruntime_model_call",
+    "timeout_seconds": 30
+  },
+  "verifier": {
+    "transport": "mcp_stdio",
+    "model": {
+      "model_id": "mock-verifier",
+      "family": "mock-verifier-family",
+      "roles": ["verifier"],
+      "strength": "strong"
+    },
+    "command": ["%SYBERRUNTIME_PYTHON%", "examples/mock_mcp_server.py"],
+    "tool_name": "syberruntime_model_call",
+    "timeout_seconds": 30
+  }
+}

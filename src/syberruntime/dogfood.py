@@ -1,0 +1,80 @@
+"""Dogfooding report support for RQ0/RQ6 evidence collection."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from syberruntime.hashing import canonical_json, digest_json
+from syberruntime.runtime import Runtime
+
+
+@dataclass(frozen=True)
+class DogfoodReport:
+    report_id: str
+    protocol_path: str
+    runtime_root: str
+    artifact_digests: tuple[str, ...]
+    metrics: dict[str, Any]
+    notes: str
+    scope: str = "n=1 feasibility evidence"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "report_id": self.report_id,
+            "protocol_path": self.protocol_path,
+            "runtime_root": self.runtime_root,
+            "artifact_digests": list(self.artifact_digests),
+            "metrics": self.metrics,
+            "notes": self.notes,
+            "scope": self.scope,
+        }
+
+
+def create_dogfood_report(
+    runtime: Runtime,
+    *,
+    protocol_path: str | Path,
+    notes: str,
+    artifact_digests: tuple[str, ...] | list[str] | None = None,
+) -> DogfoodReport:
+    state = runtime.rebuild_state()
+    selected = tuple(artifact_digests or tuple(sorted(state.artifacts)))
+    payload = {
+        "protocol_path": str(protocol_path),
+        "runtime_root": str(runtime.root),
+        "artifact_digests": list(selected),
+        "metrics": runtime.metrics().to_dict(),
+        "notes": notes,
+        "scope": "n=1 feasibility evidence",
+    }
+    return DogfoodReport(report_id=digest_json(payload), **payload)
+
+
+def write_dogfood_report(report: DogfoodReport, output_path: str | Path) -> Path:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(canonical_json(report.to_dict()), encoding="utf-8")
+    return path
+
+
+def discover_dogfood_reports(directory: str | Path) -> tuple[Path, ...]:
+    path = Path(directory)
+    if not path.exists():
+        return ()
+    return tuple(sorted(item for item in path.glob("*.json") if item.is_file()))
+
+
+def load_dogfood_report(path: str | Path) -> DogfoodReport:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return DogfoodReport(
+        report_id=str(data["report_id"]),
+        protocol_path=str(data["protocol_path"]),
+        runtime_root=str(data["runtime_root"]),
+        artifact_digests=tuple(str(item) for item in data.get("artifact_digests", [])),
+        metrics=dict(data["metrics"]),
+        notes=str(data.get("notes", "")),
+        scope=str(data.get("scope", "n=1 feasibility evidence")),
+    )
