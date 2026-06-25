@@ -13,6 +13,8 @@ model inference remains external and replaceable.
 | DeepSeek/OpenAI-compatible provider path | v1 Phase 2 requires model routing and cross-family verification; DeepSeek can serve as a different verifier family from Google. |
 | Anthropic/OpenAI provider paths | v1 section 6 risk mitigation: supported providers can be swapped without changing operation storage or debt semantics. |
 | Local fake-provider tests | v1 section 7 requires measured progress and recoverability; provider wiring must be testable without spending model calls. |
+| JSON-only role prompting and extraction | v1 sections 4.1 and 4.2 require strict model contracts for generator and verifier outputs; v0.6 section 3.1 requires typed operations rather than prose-only coordination. |
+| Planner operation-verb validation | v0.6 section 3.1 defines the open versioned verb set; v1 section 4.3 requires the planner to emit a typed operation graph. |
 
 ## Available Providers
 
@@ -67,5 +69,12 @@ Then run the release-gate check with the same provider config:
 - Google examples in the official Gemini API docs use `generateContent` and
   JSON response MIME type. The server requests JSON output, but SyberRuntime
   still validates the returned strict role payload.
+- Provider responses are accepted only as JSON objects. The endpoint can recover
+  a single balanced JSON object from harmless prose wrapping, but arrays and
+  malformed objects remain contract failures.
+- Planner steps must use SyberRuntime operation verbs: `Feature`, `Test`,
+  `Refactor`, `Research`, `Verify`, `Compress`, `Simulate`, or `Stabilize`.
+  Informal verbs such as "Design" or "Summarize" are rejected before they can
+  enter the operation graph.
 - Anthropic and OpenAI support is implemented but not required for the current
   Google/DeepSeek path.

@@ -20,6 +20,14 @@ from syberruntime.policy import FixedPolicy
 from syberruntime.runtime import Runtime
 
 
+LIVE_SMOKE_ARTIFACT_NAME = "agent-live-smoke.txt"
+LIVE_SMOKE_ARTIFACT_CONTENT = "agent-live-smoke-token\n"
+LIVE_SMOKE_INTENT = (
+    f"Create a local SyberRuntime text artifact named {LIVE_SMOKE_ARTIFACT_NAME} whose content is exactly "
+    f"{LIVE_SMOKE_ARTIFACT_CONTENT!r}, then verify it with a deterministic text_equals oracle."
+)
+
+
 @dataclass(frozen=True)
 class HarnessTask:
     task_id: str
@@ -183,8 +191,8 @@ def run_live_agent_harness(
     principal: str = "agent-harness-live-v1",
     benchmark_id: str = "agentic-intent-harness-live-v1",
     acceptance_authority: str = "provider-verifier-and-deterministic-oracle",
-    intent: str = "Live provider harness creates a tiny verifiable artifact.",
-    artifact_name: str = "agent-live-smoke.txt",
+    intent: str = LIVE_SMOKE_INTENT,
+    artifact_name: str = LIVE_SMOKE_ARTIFACT_NAME,
     run_mutation_campaign: bool = True,
 ) -> HarnessReport:
     runtime = Runtime(runtime_root, policy=FixedPolicy(default_profile="production"))

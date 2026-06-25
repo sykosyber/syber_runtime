@@ -31,8 +31,8 @@ def main() -> int:
         elif method == "notifications/initialized":
             continue
         elif method == "tools/call":
-            role = message["params"]["arguments"]["request"]["role"]
-            payload = _model_payload(role)
+            request = message["params"]["arguments"]["request"]
+            payload = _model_payload(request)
             _send(
                 {
                     "jsonrpc": "2.0",
@@ -59,7 +59,8 @@ def _send(message: dict[str, Any]) -> None:
     print(json.dumps(message), flush=True)
 
 
-def _model_payload(role: str) -> dict[str, Any]:
+def _model_payload(request: dict[str, Any]) -> dict[str, Any]:
+    role = str(request["role"])
     if role == "planner":
         return {
             "steps": [
@@ -79,6 +80,7 @@ def _model_payload(role: str) -> dict[str, Any]:
             "rationale": "Use a deterministic textual oracle.",
         }
     if role == "generator":
+        expected = _expected_text(request)
         return {
             "assumptions": [
                 {
@@ -88,18 +90,35 @@ def _model_payload(role: str) -> dict[str, Any]:
                     "alternatives_considered": "JSON",
                 }
             ],
-            "plan": "Emit the configured token.",
-            "artifact": "configured-token\n",
+            "plan": "Emit the expected deterministic token.",
+            "artifact": expected,
             "self_identified_risks": ["The token could be omitted."],
         }
     if role == "verifier":
+        expected = _expected_text(request)
         return {
-            "checkable_oracle": {"kind": "text_contains", "expected": "configured-token"},
+            "checkable_oracle": {"kind": "text_equals", "expected": expected},
             "verdict": "pass",
             "located_errors": [],
             "obligation_discharged": True,
         }
     raise SystemExit(2)
+
+
+def _expected_text(request: dict[str, Any]) -> str:
+    payload = request.get("payload", {})
+    if not isinstance(payload, dict):
+        return "configured-token\n"
+    intent = str(payload.get("intent", ""))
+    artifact_name = str(payload.get("artifact_name", ""))
+    artifact = str(payload.get("artifact", ""))
+    if (
+        artifact_name == "agent-live-smoke.txt"
+        or "agent-live-smoke-token" in intent
+        or artifact == "agent-live-smoke-token\n"
+    ):
+        return "agent-live-smoke-token\n"
+    return "configured-token\n"
 
 
 if __name__ == "__main__":

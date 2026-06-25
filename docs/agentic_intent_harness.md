@@ -14,6 +14,7 @@ records who or what originated the intent and how acceptance was judged.
 | Agentic CLI harness | v1 Phase 3 requires measured RQ0/RQ6 results; v1 section 6 recommends dogfooding the kernel; v1 section 7 requires pre-registered dogfooding evidence. | Implemented as `syber ... agent-harness run`. |
 | Harness protocol file | v1 Phase 3 requires pre-registered RQ0/RQ6 comparisons before reporting outcomes. | This file is the v0 protocol and must be amended before changing metrics. |
 | Scripted task suite | v0.6 section 6 Tier 1 supports n=1 feasibility evidence; v1 Phase 3 requires measuring the runtime instead of relying on intuition. | Implemented with one expected pass and one expected blocked verification case. |
+| Live provider smoke task | v1 Phase 2 requires real AI via MCP; v1 Phase 3 requires measured outcomes; v0.6 section 3.1 requires typed Feature -> Verify grammar. | Implemented as one exact local text artifact plus deterministic `text_equals` verification. |
 | Human acceptance checkpoint | v0.6 section 1 frames human understanding as the protected resource; agentic intent can originate work, but institutional claims still need accountable review. | Deferred from v0 automation; report review remains human. |
 
 ## Inference
@@ -74,7 +75,10 @@ Override the output path when running in temporary or CI contexts:
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent agent-harness run --run-id agentic-v0-001 --output docs\agentic_harness_reports\agentic-v0-001.json
 ```
 
-Live provider smoke, spends real provider calls:
+Live provider smoke, spends real provider calls. The default live task is exact
+on purpose: create `agent-live-smoke.txt` with content
+`agent-live-smoke-token\n`, then verify it with a deterministic `text_equals`
+oracle.
 
 ```powershell
 $env:PYTHONPATH='D:\syberlabs\syber_runtime\src'

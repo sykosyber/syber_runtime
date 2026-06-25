@@ -16,6 +16,7 @@ from syberruntime import (  # noqa: E402
     validate_harness_report,
     write_harness_report,
 )
+from syberruntime.harness import LIVE_SMOKE_ARTIFACT_CONTENT  # noqa: E402
 
 
 class AgentHarnessTests(unittest.TestCase):
@@ -108,6 +109,8 @@ class AgentHarnessTests(unittest.TestCase):
             self.assertEqual(data["task_results"][0]["status"], "pass")
             self.assertTrue(data["model_assignments"])
             self.assertIn("mock-generator-family", json.dumps(data["model_assignments"]))
+            digest = data["task_results"][0]["artifact_digest"]
+            self.assertEqual(Runtime(root / "runtime").blobs.get_text(digest), LIVE_SMOKE_ARTIFACT_CONTENT)
 
     def test_live_harness_failure_report_can_be_valid_evidence(self) -> None:
         validate_harness_report(

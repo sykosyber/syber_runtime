@@ -13,13 +13,52 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from syberruntime import FixedPolicy, Runtime, load_adapter_bundle  # noqa: E402
-from syberruntime.provider_mcp import _extract_json_payload  # noqa: E402
+from syberruntime.ai_contracts import PlannerOutput  # noqa: E402
+from syberruntime.errors import ModelContractError  # noqa: E402
+from syberruntime.provider_mcp import _extract_json_payload, _user_prompt  # noqa: E402
 
 
 class ProviderMCPTests(unittest.TestCase):
     def test_extract_json_payload_accepts_plain_and_fenced_json(self) -> None:
         self.assertEqual(_extract_json_payload('{"ok": true}'), {"ok": True})
         self.assertEqual(_extract_json_payload('```json\n{"ok": true}\n```'), {"ok": True})
+
+    def test_extract_json_payload_accepts_embedded_json_object(self) -> None:
+        payload = _extract_json_payload('Result follows:\n{"ok": true, "nested": {"token": "}"}}\nDone.')
+
+        self.assertEqual(payload, {"ok": True, "nested": {"token": "}"}})
+
+    def test_provider_prompt_constrains_planner_to_runtime_grammar(self) -> None:
+        prompt = _user_prompt(
+            {
+                "role": "planner",
+                "operation_type": "Research",
+                "system": "runtime",
+                "payload": {"intent": "create a smoke artifact"},
+            }
+        )
+
+        self.assertIn("You are operating inside SyberRuntime", prompt)
+        self.assertIn("Feature", prompt)
+        self.assertIn("Verify", prompt)
+        self.assertIn("Do not use informal verbs", prompt)
+        self.assertIn("SyberRuntime request:\n", prompt)
+
+    def test_planner_contract_rejects_informal_verbs(self) -> None:
+        with self.assertRaisesRegex(ModelContractError, "SyberRuntime operation verb"):
+            PlannerOutput.from_payload(
+                {
+                    "steps": [
+                        {
+                            "verb": "Design",
+                            "success_question": "Was a design produced?",
+                            "budget_alloc": 1.0,
+                            "model_role": "planner",
+                        }
+                    ],
+                    "rationale": "Informal prose verbs are not operation graph verbs.",
+                }
+            )
 
     def test_provider_mcp_runs_ai_loop_via_openai_compatible_endpoint(self) -> None:
         with _FakeProviderServer("openai") as provider:

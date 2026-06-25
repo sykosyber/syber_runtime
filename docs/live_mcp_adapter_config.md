@@ -15,6 +15,7 @@ the model endpoint remains external.
 | `examples/mcp_adapter_config.example.json` | v1 section 6 warns MCP/models evolve; the adapter boundary mitigates this by making endpoint replacement local to configuration. |
 | `examples/mock_mcp_server.py` | v1 section 6 risk mitigation: a protocol-shaped local fixture keeps the configured path testable without claiming real AI evidence. |
 | `syberruntime.provider_mcp` | v1 Phase 2 and v1 section 7 require the MCP loop to reach real model providers while preserving the external inference boundary. |
+| Strict role-payload validation | v0.6 section 3.1 defines typed operation verbs and no unverified generation; v1 sections 4.1-4.3 require strict planner/generator/verifier contracts. |
 
 ## Config Shape
 
@@ -82,7 +83,9 @@ The tool receives these arguments:
 The tool result must return the strict SyberRuntime role payload as
 `structuredContent`, or as JSON in a text content item. Required payloads:
 
-- planner: `steps` and `rationale`
+- planner: `steps` and `rationale`; each step `verb` must be one of
+  `Feature`, `Test`, `Refactor`, `Research`, `Verify`, `Compress`,
+  `Simulate`, or `Stabilize`
 - generator: `assumptions`, `plan`, `artifact`, and `self_identified_risks`
 - verifier: `verdict`, `located_errors`, optional `checkable_oracle`
 

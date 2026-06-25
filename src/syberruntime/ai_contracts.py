@@ -11,6 +11,21 @@ from typing import Any
 
 from syberruntime.errors import ModelContractError
 from syberruntime.hashing import normalize_json
+from syberruntime.models import Verb
+
+
+PLANNER_OPERATION_VERBS = frozenset(
+    {
+        Verb.FEATURE.value,
+        Verb.TEST.value,
+        Verb.REFACTOR.value,
+        Verb.RESEARCH.value,
+        Verb.VERIFY.value,
+        Verb.COMPRESS.value,
+        Verb.SIMULATE.value,
+        Verb.STABILIZE.value,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -100,8 +115,14 @@ class PlannedStep:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PlannedStep":
         _require_keys(data, "planned step", ("verb", "success_question", "budget_alloc", "model_role"))
+        verb = str(data["verb"])
+        if verb not in PLANNER_OPERATION_VERBS:
+            allowed = ", ".join(sorted(PLANNER_OPERATION_VERBS))
+            raise ModelContractError(
+                f"planned step verb must be a SyberRuntime operation verb ({allowed}); found {verb!r}"
+            )
         return cls(
-            verb=str(data["verb"]),
+            verb=verb,
             success_question=str(data["success_question"]),
             budget_alloc=float(data["budget_alloc"]),
             model_role=str(data["model_role"]),

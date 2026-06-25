@@ -272,9 +272,13 @@ def _call_google(config: ProviderConfig, *, model_id: str, system: str, prompt: 
 def _user_prompt(request: dict[str, Any]) -> str:
     role = str(request["role"])
     return (
-        "Return only a single JSON object, without Markdown fences or commentary.\n"
+        "Return only one JSON object. Do not include Markdown fences, prose, prefaces, or commentary.\n"
+        "You are operating inside SyberRuntime. Produce only the requested role payload; do not design "
+        "external cloud services, provider integrations, credentials, APIs, repositories, or storage unless "
+        "the request explicitly asks for them.\n"
         f"Role: {role}\n"
         f"Required JSON schema summary: {_schema_summary(role)}\n"
+        f"Role-specific constraints: {_role_constraints(role)}\n"
         "SyberRuntime request:\n"
         f"{json.dumps(request, sort_keys=True)}"
     )
@@ -282,7 +286,11 @@ def _user_prompt(request: dict[str, Any]) -> str:
 
 def _schema_summary(role: str) -> str:
     if role == "planner":
-        return '{"steps":[{"verb":str,"success_question":str,"budget_alloc":number,"model_role":str}],"rationale":str}'
+        return (
+            '{"steps":[{"verb":"Feature|Test|Refactor|Research|Verify|Compress|Simulate|Stabilize",'
+            '"success_question":str,"budget_alloc":number,"model_role":"generator|verifier|planner"}],'
+            '"rationale":str}'
+        )
     if role == "generator":
         return (
             '{"assumptions":[{"claim":str,"depends_on":str,"confidence_rationale":str,'
@@ -291,6 +299,26 @@ def _schema_summary(role: str) -> str:
     if role == "verifier":
         return '{"checkable_oracle":object|null,"verdict":"pass|fail|uncertain","located_errors":[{"where":str,"why":str}],"obligation_discharged":bool}'
     return "{}"
+
+
+def _role_constraints(role: str) -> str:
+    if role == "planner":
+        return (
+            "Plan only SyberRuntime operations. Use exact operation verbs from the schema; for the live "
+            "smoke path prefer one Feature step with model_role generator followed by one Verify step with "
+            "model_role verifier. Do not use informal verbs such as Identify, Define, Design, Sketch, or Summarize."
+        )
+    if role == "generator":
+        return (
+            "Create the requested local artifact content in the artifact field. Do not describe a provider "
+            "architecture or setup process. If the intent specifies exact text, emit that text verbatim."
+        )
+    if role == "verifier":
+        return (
+            "Prefer a deterministic checkable_oracle using text_equals for exact content or text_contains "
+            "for substring checks. Use verdict pass only when the oracle is consistent with the artifact."
+        )
+    return "Return the requested SyberRuntime role payload."
 
 
 def _extract_json_payload(text: str) -> dict[str, Any]:
@@ -302,13 +330,51 @@ def _extract_json_payload(text: str) -> dict[str, Any]:
         if lines and lines[-1].startswith("```"):
             lines = lines[:-1]
         stripped = "\n".join(lines).strip()
-    try:
-        payload = json.loads(stripped)
-    except json.JSONDecodeError as exc:
-        raise ProviderMCPError("Provider did not return valid JSON") from exc
-    if not isinstance(payload, dict):
-        raise ProviderMCPError("Provider JSON payload must be an object")
-    return payload
+    candidates = [stripped]
+    embedded = _first_balanced_json_object(stripped)
+    if embedded is not None and embedded != stripped:
+        candidates.append(embedded)
+    last_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if not isinstance(payload, dict):
+            raise ProviderMCPError("Provider JSON payload must be an object")
+        return payload
+    if last_error is None:
+        raise ProviderMCPError("Provider did not return valid JSON")
+    raise ProviderMCPError("Provider did not return valid JSON") from last_error
+
+
+def _first_balanced_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
 
 
 def _post_json(
