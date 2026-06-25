@@ -12,6 +12,7 @@ from typing import Any
 from syberruntime.errors import ModelContractError
 from syberruntime.hashing import normalize_json
 from syberruntime.models import Verb
+from syberruntime.verification import SUPPORTED_DETERMINISTIC_CHECK_KINDS
 
 
 PLANNER_OPERATION_VERBS = frozenset(
@@ -231,6 +232,15 @@ class VerifierOutput:
             checkable_oracle = normalize_json(checkable_oracle)
             if not isinstance(checkable_oracle, dict):
                 raise ModelContractError("verifier checkable_oracle must be null or an object")
+            kind = str(checkable_oracle.get("kind", ""))
+            if kind not in SUPPORTED_DETERMINISTIC_CHECK_KINDS:
+                allowed = ", ".join(sorted(SUPPORTED_DETERMINISTIC_CHECK_KINDS))
+                raise ModelContractError(
+                    f"verifier checkable_oracle kind must be a supported deterministic check ({allowed}); "
+                    f"found {kind!r}"
+                )
+            if "expected" not in checkable_oracle:
+                raise ModelContractError("verifier checkable_oracle missing required key: expected")
         return cls(
             checkable_oracle=checkable_oracle,
             verdict=verdict,

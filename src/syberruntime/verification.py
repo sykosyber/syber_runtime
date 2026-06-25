@@ -10,6 +10,9 @@ from syberruntime.errors import VerificationError
 from syberruntime.models import ArtifactRef
 
 
+SUPPORTED_DETERMINISTIC_CHECK_KINDS = frozenset({"text_contains", "text_equals", "sha256_equals"})
+
+
 @dataclass(frozen=True)
 class VerificationResult:
     kind: str

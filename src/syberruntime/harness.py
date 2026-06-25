@@ -312,15 +312,21 @@ def _run_live_task(
     verifier: Any,
     run_mutation_campaign: bool,
 ) -> HarnessTaskResult:
+    thread_id = None
+    artifact_digest = None
     try:
+        thread = runtime.create_thread(intent=intent, actor=metadata.principal, intent_metadata=metadata)
+        thread_id = thread.operation.thread_id
         result = runtime.run_ai_loop(
             intent=intent,
             artifact_name=artifact_name,
             planner=planner,
             generator=generator,
             verifier=verifier,
+            thread_id=thread_id,
             intent_metadata=metadata,
         )
+        artifact_digest = result.artifact_digest
         mutation_report = None
         if run_mutation_campaign and result.stabilized and result.verifier_output.checkable_oracle is not None:
             _entry, report = runtime.run_mutation_campaign(
@@ -336,23 +342,37 @@ def _run_live_task(
             task_id="live-provider-smoke-001",
             status="pass" if result.stabilized else "fail",
             thread_id=result.feature_entry.operation.thread_id,
-            artifact_digest=result.artifact_digest,
+            artifact_digest=artifact_digest,
             stabilized=result.stabilized,
             expected_stabilized=True,
             failure=failure,
             mutation_report=mutation_report,
         )
     except Exception as exc:  # noqa: BLE001 - provider boundary failures are evidence.
+        artifact_digest = artifact_digest or _latest_thread_artifact_digest(runtime, thread_id)
         return HarnessTaskResult(
             task_id="live-provider-smoke-001",
             status="fail",
-            thread_id=None,
-            artifact_digest=None,
+            thread_id=thread_id,
+            artifact_digest=artifact_digest,
             stabilized=False,
             expected_stabilized=True,
             failure=str(exc),
             mutation_report=None,
         )
+
+
+def _latest_thread_artifact_digest(runtime: Runtime, thread_id: str | None) -> str | None:
+    if thread_id is None:
+        return None
+    try:
+        state = runtime.rebuild_state()
+    except Exception:  # noqa: BLE001 - failure reports should survive projection issues.
+        return None
+    thread = state.threads.get(thread_id)
+    if thread is None or not thread.artifacts:
+        return None
+    return thread.artifacts[-1]
 
 
 def _run_task(runtime: Runtime, task: HarnessTask, metadata: IntentMetadata) -> HarnessTaskResult:

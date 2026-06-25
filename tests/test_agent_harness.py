@@ -10,13 +10,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from syberruntime import (  # noqa: E402
     IntentMetadata,
+    ModelSpec,
     Runtime,
+    ScriptedModelAdapter,
     run_live_agent_harness,
     run_scripted_agent_harness,
     validate_harness_report,
     write_harness_report,
 )
-from syberruntime.harness import LIVE_SMOKE_ARTIFACT_CONTENT  # noqa: E402
+from syberruntime.harness import (  # noqa: E402
+    LIVE_SMOKE_ARTIFACT_CONTENT,
+    LIVE_SMOKE_ARTIFACT_NAME,
+    LIVE_SMOKE_INTENT,
+    _run_live_task,
+)
 
 
 class AgentHarnessTests(unittest.TestCase):
@@ -144,6 +151,81 @@ class AgentHarnessTests(unittest.TestCase):
             }
         )
 
+    def test_live_harness_failure_preserves_partial_artifact_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Runtime(Path(tmp) / "runtime")
+            metadata = IntentMetadata(
+                intent_source="agent",
+                principal="test-live-agent",
+                acceptance_authority="provider-verifier-and-deterministic-oracle",
+                benchmark_id="bench-live",
+                harness_run_id="run-live",
+            )
+
+            result = _run_live_task(
+                runtime=runtime,
+                metadata=metadata,
+                config_path="bad-verifier-config",
+                intent=LIVE_SMOKE_INTENT,
+                artifact_name=LIVE_SMOKE_ARTIFACT_NAME,
+                planner=_scripted_adapter(
+                    "planner",
+                    "planner-family",
+                    {
+                        "steps": [
+                            {
+                                "verb": "Feature",
+                                "success_question": "Was the artifact created?",
+                                "budget_alloc": 1.0,
+                                "model_role": "generator",
+                            },
+                            {
+                                "verb": "Verify",
+                                "success_question": "Was the artifact verified?",
+                                "budget_alloc": 1.0,
+                                "model_role": "verifier",
+                            },
+                        ],
+                        "rationale": "Create then verify the smoke token.",
+                    },
+                ),
+                generator=_scripted_adapter(
+                    "generator",
+                    "generator-family",
+                    {
+                        "assumptions": [
+                            {
+                                "claim": "Plain text is enough",
+                                "depends_on": "The oracle checks exact text",
+                                "confidence_rationale": "The token is deterministic",
+                                "alternatives_considered": "Structured JSON",
+                            }
+                        ],
+                        "plan": "Emit the smoke token.",
+                        "artifact": LIVE_SMOKE_ARTIFACT_CONTENT,
+                        "self_identified_risks": [],
+                    },
+                ),
+                verifier=_scripted_adapter(
+                    "verifier",
+                    "verifier-family",
+                    {
+                        "checkable_oracle": {"kind": "", "expected": LIVE_SMOKE_ARTIFACT_CONTENT},
+                        "verdict": "pass",
+                        "located_errors": [],
+                        "obligation_discharged": True,
+                    },
+                ),
+                run_mutation_campaign=True,
+            )
+
+            self.assertEqual(result.status, "fail")
+            self.assertIsNotNone(result.thread_id)
+            self.assertIsNotNone(result.artifact_digest)
+            self.assertIn("checkable_oracle kind", result.failure or "")
+            assert result.artifact_digest is not None
+            self.assertEqual(runtime.blobs.get_text(result.artifact_digest), LIVE_SMOKE_ARTIFACT_CONTENT)
+
 
 def _configure_mock_mcp_environment() -> None:
     repo = Path(__file__).resolve().parents[1]
@@ -153,6 +235,13 @@ def _configure_mock_mcp_environment() -> None:
     os.environ["SYBERRUNTIME_PYTHON"] = sys.executable
     existing = os.environ.get("PYTHONPATH")
     os.environ["PYTHONPATH"] = os_path if not existing else os_path + os.pathsep + existing
+
+
+def _scripted_adapter(role: str, family: str, payload: dict) -> ScriptedModelAdapter:
+    return ScriptedModelAdapter(
+        spec=ModelSpec(model_id=f"test-{role}", family=family, roles=(role,)),
+        responses=(payload,),
+    )
 
 
 if __name__ == "__main__":

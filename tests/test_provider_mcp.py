@@ -13,7 +13,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from syberruntime import FixedPolicy, Runtime, load_adapter_bundle  # noqa: E402
-from syberruntime.ai_contracts import PlannerOutput  # noqa: E402
+from syberruntime.ai_contracts import PlannerOutput, VerifierOutput  # noqa: E402
 from syberruntime.errors import ModelContractError  # noqa: E402
 from syberruntime.provider_mcp import _extract_json_payload, _user_prompt  # noqa: E402
 
@@ -57,6 +57,17 @@ class ProviderMCPTests(unittest.TestCase):
                         }
                     ],
                     "rationale": "Informal prose verbs are not operation graph verbs.",
+                }
+            )
+
+    def test_verifier_contract_rejects_unsupported_oracle_kind(self) -> None:
+        with self.assertRaisesRegex(ModelContractError, "supported deterministic check"):
+            VerifierOutput.from_payload(
+                {
+                    "checkable_oracle": {"kind": "", "expected": "agent-live-smoke-token\n"},
+                    "verdict": "pass",
+                    "located_errors": [],
+                    "obligation_discharged": True,
                 }
             )
 
