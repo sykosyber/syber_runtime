@@ -13,6 +13,7 @@ results under the pre-registered protocol.
 | `dogfood-report` CLI command | v1 section 7 requires the evidence to be inspectable and reproducible, not only narrated. |
 | `acceptance-check --dogfood-report-dir` | v1 section 7 makes dogfooding evidence part of the done gate. |
 | `docs/dogfood_reports/*.json` | v0.6 section 6 defines Tier 1 autobiographical evidence as n=1 feasibility only; v1 section 7 requires those results for the institutional ask. |
+| `model_capability_envelope` | v1 section 6 identifies model/API churn as a risk; v1 Phase 3 and section 7 require measured claims to record the model capability envelope under which evidence was produced. |
 
 ## Minimum Evidence Run
 
@@ -33,6 +34,12 @@ $env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol."
 ```
 
+When provider access is constrained, record that explicitly:
+
+```powershell
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol." --model-constraint "Available API access did not include preferred frontier planner/generator/verifier models." --preferred-unavailable-model "Claude Opus-class planner/verifier" --preferred-unavailable-model "GPT-5.5-class planner/generator" --model-envelope-notes "Interpret this as a lower-bound operational demonstration, not a ceiling."
+```
+
 Audit with dogfooding evidence:
 
 ```powershell
@@ -45,3 +52,8 @@ The first report supports existence and feasibility claims only. It does not
 support population-level claims, and acceptance should stay at
 `ready_with_warnings` until both real MCP execution and real dogfooding evidence
 are present.
+
+If the run uses constrained provider access, its claim should be framed as a
+lower-bound demonstration of SyberRuntime's control architecture. Stronger
+model claims should be deferred until the same protocol is rerun with those
+model assignments.

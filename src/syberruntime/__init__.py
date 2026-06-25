@@ -63,6 +63,7 @@ from syberruntime.merkle import (
 )
 from syberruntime.metrics import RuntimeMetrics, compute_runtime_metrics
 from syberruntime.models import ArtifactRef, Evaluation, EvaluationStatus, Operation, Provenance, Verb
+from syberruntime.model_capability import LOWER_BOUND_INTERPRETATION, model_capability_envelope
 from syberruntime.mutation import Mutant, MutantResult, MutationCampaignReport, TextMutationHarness
 from syberruntime.operation_log import LogEntry, LogIntegrityError, OperationLog
 from syberruntime.orchestration import AIOperationResult
@@ -112,6 +113,7 @@ __all__ = [
     "LocatedError",
     "LogEntry",
     "LogIntegrityError",
+    "LOWER_BOUND_INTERPRETATION",
     "MCPJsonAdapter",
     "MCPStdioToolAdapter",
     "MergeConflict",
@@ -171,6 +173,7 @@ __all__ = [
     "make_snapshot",
     "merkle_root",
     "merge_operation_sequences",
+    "model_capability_envelope",
     "verify_consistency",
     "verify_inclusion",
     "run_v1_acceptance_audit",

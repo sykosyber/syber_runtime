@@ -103,6 +103,13 @@ $env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol."
 ```
 
+When model/API access is constrained, record the envelope instead of
+overclaiming:
+
+```powershell
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol." --model-constraint "Available API access did not include preferred frontier models." --preferred-unavailable-model "Claude Opus-class planner/verifier" --preferred-unavailable-model "GPT-5.5-class planner/generator"
+```
+
 Run Agentic Intent Harness v0 without spending provider calls:
 
 ```powershell

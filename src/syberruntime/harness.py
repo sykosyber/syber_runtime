@@ -16,6 +16,7 @@ from syberruntime.adapter_config import load_adapter_bundle
 from syberruntime.errors import SyberRuntimeError
 from syberruntime.hashing import canonical_json, digest_json
 from syberruntime.intent import IntentMetadata
+from syberruntime.model_capability import model_capability_envelope
 from syberruntime.policy import FixedPolicy
 from syberruntime.runtime import Runtime
 
@@ -108,6 +109,7 @@ class HarnessReport:
     mode: str = "scripted"
     provider_config_path: str | None = None
     model_assignments: dict[str, Any] | None = None
+    model_capability_envelope: dict[str, Any] | None = None
 
     @property
     def attempted_tasks(self) -> int:
@@ -130,6 +132,7 @@ class HarnessReport:
             "mode": self.mode,
             "provider_config_path": self.provider_config_path,
             "model_assignments": self.model_assignments or {},
+            "model_capability_envelope": self.model_capability_envelope or model_capability_envelope(),
             "intent_metadata": self.intent_metadata.to_dict(),
             "task_results": [result.to_dict() for result in self.task_results],
             "summary": {
@@ -218,6 +221,9 @@ def run_scripted_agent_harness(
     benchmark_id: str = "agentic-intent-harness-v0",
     acceptance_authority: str = "deterministic-oracle",
     tasks: tuple[HarnessTask, ...] | None = None,
+    model_constraints: tuple[str, ...] | list[str] | None = None,
+    preferred_unavailable_models: tuple[str, ...] | list[str] | None = None,
+    model_envelope_notes: str | None = None,
 ) -> HarnessReport:
     runtime = Runtime(runtime_root, policy=FixedPolicy(default_profile="production"))
     metadata = IntentMetadata(
@@ -237,6 +243,12 @@ def run_scripted_agent_harness(
         "intent_metadata": metadata.to_dict(),
         "task_results": [result.to_dict() for result in results],
         "metrics": metrics,
+        "model_capability_envelope": model_capability_envelope(
+            constraints=model_constraints
+            or ("scripted harness uses deterministic local fixtures rather than external model calls",),
+            preferred_unavailable_models=preferred_unavailable_models,
+            notes=model_envelope_notes,
+        ),
     }
     return HarnessReport(
         report_id=digest_json(payload),
@@ -247,6 +259,7 @@ def run_scripted_agent_harness(
         task_results=results,
         metrics=metrics,
         mode="scripted",
+        model_capability_envelope=payload["model_capability_envelope"],
     )
 
 
@@ -263,6 +276,9 @@ def run_live_agent_harness(
     artifact_name: str = LIVE_SMOKE_ARTIFACT_NAME,
     run_mutation_campaign: bool = True,
     tasks: tuple[LiveHarnessTask, ...] | None = None,
+    model_constraints: tuple[str, ...] | list[str] | None = None,
+    preferred_unavailable_models: tuple[str, ...] | list[str] | None = None,
+    model_envelope_notes: str | None = None,
 ) -> HarnessReport:
     runtime = Runtime(runtime_root, policy=FixedPolicy(default_profile="production"))
     metadata = IntentMetadata(
@@ -278,6 +294,12 @@ def run_live_agent_harness(
         "generator": bundle.generator.spec.to_dict(),
         "verifier": bundle.verifier.spec.to_dict(),
     }
+    capability_envelope = model_capability_envelope(
+        available_model_roles=model_assignments,
+        constraints=model_constraints,
+        preferred_unavailable_models=preferred_unavailable_models,
+        notes=model_envelope_notes,
+    )
     selected_tasks = tasks or (
         live_smoke_task(
             intent=intent,
@@ -305,6 +327,7 @@ def run_live_agent_harness(
         "runtime_root": str(runtime.root),
         "provider_config_path": str(config_path),
         "model_assignments": model_assignments,
+        "model_capability_envelope": capability_envelope,
         "intent_metadata": metadata.to_dict(),
         "task_results": [result.to_dict() for result in results],
         "metrics": metrics,
@@ -320,6 +343,7 @@ def run_live_agent_harness(
         mode="live",
         provider_config_path=str(config_path),
         model_assignments=model_assignments,
+        model_capability_envelope=capability_envelope,
     )
 
 

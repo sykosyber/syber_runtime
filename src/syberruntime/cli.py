@@ -100,6 +100,9 @@ def main(argv: list[str] | None = None) -> int:
     dogfood_parser.add_argument("--output", required=True, type=Path)
     dogfood_parser.add_argument("--notes", required=True)
     dogfood_parser.add_argument("--artifact-digest", action="append", default=[])
+    dogfood_parser.add_argument("--model-constraint", action="append", default=[])
+    dogfood_parser.add_argument("--preferred-unavailable-model", action="append", default=[])
+    dogfood_parser.add_argument("--model-envelope-notes", default="")
 
     harness_parser = subparsers.add_parser("agent-harness")
     harness_parser.add_argument("action", choices=("run",))
@@ -112,6 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     harness_parser.add_argument("--benchmark-id", default="agentic-intent-harness-v0")
     harness_parser.add_argument("--acceptance-authority", default="deterministic-oracle")
     harness_parser.add_argument("--task-set", choices=("smoke", "scale3"), default="smoke")
+    harness_parser.add_argument("--model-constraint", action="append", default=[])
+    harness_parser.add_argument("--preferred-unavailable-model", action="append", default=[])
+    harness_parser.add_argument("--model-envelope-notes", default="")
 
     scale3_analysis_parser = subparsers.add_parser("scale3-analysis")
     scale3_analysis_parser.add_argument("--report", action="append", required=True, type=Path)
@@ -214,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
             protocol_path=args.protocol,
             notes=args.notes,
             artifact_digests=tuple(args.artifact_digest),
+            model_constraints=tuple(args.model_constraint),
+            preferred_unavailable_models=tuple(args.preferred_unavailable_model),
+            model_envelope_notes=args.model_envelope_notes,
         )
         path = write_dogfood_report(report, args.output)
         _print_json({"path": str(path), "report": report.to_dict()})
@@ -247,6 +256,9 @@ def main(argv: list[str] | None = None) -> int:
                 benchmark_id=benchmark_id,
                 acceptance_authority=acceptance_authority,
                 tasks=default_live_scale_tasks() if args.task_set == "scale3" else None,
+                model_constraints=tuple(args.model_constraint),
+                preferred_unavailable_models=tuple(args.preferred_unavailable_model),
+                model_envelope_notes=args.model_envelope_notes,
             )
         else:
             report = run_scripted_agent_harness(
@@ -256,6 +268,9 @@ def main(argv: list[str] | None = None) -> int:
                 principal=args.principal,
                 benchmark_id=args.benchmark_id,
                 acceptance_authority=args.acceptance_authority,
+                model_constraints=tuple(args.model_constraint),
+                preferred_unavailable_models=tuple(args.preferred_unavailable_model),
+                model_envelope_notes=args.model_envelope_notes,
             )
         path = write_harness_report(report, output)
         _print_json({"path": str(path), "report": report.to_dict()})

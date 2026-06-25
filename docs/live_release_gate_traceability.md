@@ -11,6 +11,7 @@ section 7 release gate after Phases 0 through 4 are implemented.
 | Acceptance live-MCP criterion | v1 section 7 | Implemented as `live_mcp_real_ai_endpoint`; warns when no config is supplied and fails on bad supplied configs. |
 | Dogfood report model | v0.6 section 6; v1 Phase 3; v1 section 7 | Implemented in `src/syberruntime/dogfood.py`. |
 | Dogfood report CLI | v1 Phase 3; v1 section 7 | Implemented as `dogfood-report`. |
+| Model capability envelope | v1 section 6; v1 Phase 3; v1 section 7 | Dogfood and harness reports record available role models, constrained access, unavailable preferred models, and lower-bound interpretation. |
 | Acceptance dogfood criterion | v0.6 section 6; v1 Phase 3; v1 section 7 | Implemented as `dogfooding_rq0_rq6_results`; warns when no report directory exists and fails invalid reports. |
 | Real endpoint config template | v1 Phase 2; roadmap risk mitigation for MCP/model churn in v1 section 6 | Added as `examples/mcp_adapter_config.example.json`. |
 | Mock MCP server fixture | v1 Phase 2; roadmap risk mitigation for MCP/model churn in v1 section 6 | Added as `examples/mock_mcp_server.py` only for local smoke verification. |

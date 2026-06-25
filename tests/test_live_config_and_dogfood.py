@@ -15,6 +15,7 @@ from syberruntime import (  # noqa: E402
     create_dogfood_report,
     default_live_scale_tasks,
     load_adapter_bundle,
+    load_dogfood_report,
     run_v1_acceptance_audit,
     run_live_agent_harness,
     run_scripted_agent_harness,
@@ -92,8 +93,17 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
                 runtime,
                 protocol_path=root / "protocol.md",
                 notes="Synthetic report fixture for acceptance audit coverage.",
+                model_constraints=("limited to fixture models",),
+                preferred_unavailable_models=("Claude Opus-class planner", "GPT-5.5-class generator"),
+                model_envelope_notes="Synthetic acceptance fixture.",
             )
-            write_dogfood_report(report, report_dir / "report.json")
+            report_path = write_dogfood_report(report, report_dir / "report.json")
+            loaded_report = load_dogfood_report(report_path)
+            self.assertIn("limited to fixture models", loaded_report.model_capability_envelope["constraints"])
+            self.assertIn(
+                "GPT-5.5-class generator",
+                loaded_report.model_capability_envelope["preferred_unavailable_models"],
+            )
             harness_report_dir = root / "harness-reports"
             harness_report = run_scripted_agent_harness(
                 runtime_root=root / "harness-runtime",
@@ -106,6 +116,12 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
                 protocol_path=root / "agentic_protocol.md",
                 run_id="acceptance-live-harness-fixture",
                 config_path=config,
+                model_constraints=("fixture MCP model only",),
+                preferred_unavailable_models=("Claude Opus-class verifier",),
+            )
+            self.assertIn(
+                "subprocess-generator",
+                json.dumps(live_harness_report.to_dict()["model_capability_envelope"]),
             )
             write_harness_report(live_harness_report, harness_report_dir / "live-report.json")
             scale3_report = run_live_agent_harness(

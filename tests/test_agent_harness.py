@@ -119,6 +119,8 @@ class AgentHarnessTests(unittest.TestCase):
             self.assertEqual(data["task_results"][0]["status"], "pass")
             self.assertTrue(data["model_assignments"])
             self.assertIn("mock-generator-family", json.dumps(data["model_assignments"]))
+            self.assertIn("model_capability_envelope", data)
+            self.assertIn("mock-generator-family", json.dumps(data["model_capability_envelope"]))
             digest = data["task_results"][0]["artifact_digest"]
             self.assertEqual(Runtime(root / "runtime").blobs.get_text(digest), LIVE_SMOKE_ARTIFACT_CONTENT)
 
