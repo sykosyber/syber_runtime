@@ -10,7 +10,12 @@ from uuid import uuid4
 from syberruntime.acceptance import run_v1_acceptance_audit
 from syberruntime.adapter_config import load_adapter_bundle
 from syberruntime.dogfood import create_dogfood_report, write_dogfood_report
-from syberruntime.harness import run_live_agent_harness, run_scripted_agent_harness, write_harness_report
+from syberruntime.harness import (
+    default_live_scale_tasks,
+    run_live_agent_harness,
+    run_scripted_agent_harness,
+    write_harness_report,
+)
 from syberruntime.hashing import canonical_json
 from syberruntime.runtime import Runtime
 
@@ -105,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     harness_parser.add_argument("--principal", default="agent-harness-v0")
     harness_parser.add_argument("--benchmark-id", default="agentic-intent-harness-v0")
     harness_parser.add_argument("--acceptance-authority", default="deterministic-oracle")
+    harness_parser.add_argument("--task-set", choices=("smoke", "scale3"), default="smoke")
 
     acceptance_parser = subparsers.add_parser("acceptance-check")
     acceptance_parser.add_argument("--mcp-config", type=Path)
@@ -235,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
                 principal=principal,
                 benchmark_id=benchmark_id,
                 acceptance_authority=acceptance_authority,
+                tasks=default_live_scale_tasks() if args.task_set == "scale3" else None,
             )
         else:
             report = run_scripted_agent_harness(

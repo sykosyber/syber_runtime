@@ -15,6 +15,7 @@ records who or what originated the intent and how acceptance was judged.
 | Harness protocol file | v1 Phase 3 requires pre-registered RQ0/RQ6 comparisons before reporting outcomes. | This file is the v0 protocol and must be amended before changing metrics. |
 | Scripted task suite | v0.6 section 6 Tier 1 supports n=1 feasibility evidence; v1 Phase 3 requires measuring the runtime instead of relying on intuition. | Implemented with one expected pass and one expected blocked verification case. |
 | Live provider smoke task | v1 Phase 2 requires real AI via MCP; v1 Phase 3 requires measured outcomes; v0.6 section 3.1 requires typed Feature -> Verify grammar. | Implemented as one exact local text artifact plus deterministic `text_equals` verification. |
+| Live `scale3` provider campaign | v1 Phase 3 requires measured scaling evidence; v0.6 section 3.6 frames requisite variety as matching generative variety with verification capacity; v0.6 section 3.8 requires inspectable provenance. | Implemented as three exact local text artifacts, each independently planned, generated, verified, stabilized, and mutation-measured in one report. |
 | Failed-run evidence preservation | v0.6 section 3.8 requires inspectable provenance; v1 section 7 requires a fresh reader to trace an artifact's making in minutes. | Failed live runs preserve `thread_id` and `artifact_digest` when those exist, rather than collapsing partial progress into an opaque failure. |
 | Human acceptance checkpoint | v0.6 section 1 frames human understanding as the protected resource; agentic intent can originate work, but institutional claims still need accountable review. | Deferred from v0 automation; report review remains human. |
 
@@ -95,6 +96,17 @@ $env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-run
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live-mock agent-harness run --mode live --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-mock-001 --output docs\agentic_harness_reports\agentic-live-mock-001.json
 ```
 
+Run the three-task scale campaign with mock MCP wiring:
+
+```powershell
+$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
+$env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live-scale3-mock agent-harness run --mode live --task-set scale3 --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-scale3-mock-001 --output docs\agentic_harness_reports\agentic-live-scale3-mock-001.json
+```
+
+Using `--task-set scale3` with `examples/mcp_adapter_config.example.json`
+spends real provider calls.
+
 ## V0 Acceptance
 
 The scripted baseline harness report should show:
@@ -120,6 +132,6 @@ first-class evidence rather than filtering for successful demos.
 ## Deferred
 
 - Live provider-driven task generation.
-- Multi-task live provider campaigns.
+- Larger and variable live provider campaigns.
 - Automatic dogfood report promotion.
 - Human review workflow for accepting or rejecting a harness report.

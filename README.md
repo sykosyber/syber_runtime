@@ -116,6 +116,14 @@ $env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-run
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live-mock agent-harness run --mode live --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-mock-001 --output docs\agentic_harness_reports\agentic-live-mock-001.json
 ```
 
+Run the three-task scale campaign through mock MCP wiring:
+
+```powershell
+$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
+$env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live-scale3-mock agent-harness run --mode live --task-set scale3 --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-scale3-mock-001 --output docs\agentic_harness_reports\agentic-live-scale3-mock-001.json
+```
+
 See `docs/live_mcp_adapter_config.md`, `docs/dogfooding_next_steps.md`, and
 `docs/live_release_gate_traceability.md` for roadmap-cited release-gate details.
 See `docs/agentic_intent_harness.md` for the agentic benchmark protocol.

@@ -7,7 +7,9 @@ stdio adapter path without external credentials.
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 import sys
 from typing import Any
 
@@ -110,6 +112,9 @@ def _expected_text(request: dict[str, Any]) -> str:
     if not isinstance(payload, dict):
         return "configured-token\n"
     intent = str(payload.get("intent", ""))
+    exact = _exact_content_from_intent(intent)
+    if exact is not None:
+        return exact
     artifact_name = str(payload.get("artifact_name", ""))
     artifact = str(payload.get("artifact", ""))
     if (
@@ -119,6 +124,17 @@ def _expected_text(request: dict[str, Any]) -> str:
     ):
         return "agent-live-smoke-token\n"
     return "configured-token\n"
+
+
+def _exact_content_from_intent(intent: str) -> str | None:
+    match = re.search(r"content is exactly (?P<literal>'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\")", intent)
+    if match is None:
+        return None
+    try:
+        value = ast.literal_eval(match.group("literal"))
+    except (SyntaxError, ValueError):
+        return None
+    return value if isinstance(value, str) else None
 
 
 if __name__ == "__main__":

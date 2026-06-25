@@ -23,6 +23,8 @@ from syberruntime.harness import (  # noqa: E402
     LIVE_SMOKE_ARTIFACT_NAME,
     LIVE_SMOKE_INTENT,
     _run_live_task,
+    default_live_scale_tasks,
+    live_smoke_task,
 )
 
 
@@ -119,6 +121,30 @@ class AgentHarnessTests(unittest.TestCase):
             digest = data["task_results"][0]["artifact_digest"]
             self.assertEqual(Runtime(root / "runtime").blobs.get_text(digest), LIVE_SMOKE_ARTIFACT_CONTENT)
 
+    def test_live_agent_harness_scale3_runs_through_mock_mcp_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _configure_mock_mcp_environment()
+            report = run_live_agent_harness(
+                runtime_root=root / "runtime",
+                protocol_path="docs/agentic_intent_harness.md",
+                run_id="live-scale-mock-run",
+                config_path=Path(__file__).resolve().parents[1] / "examples" / "mock_mcp_adapter_config.example.json",
+                tasks=default_live_scale_tasks(),
+            )
+            data = report.to_dict()
+
+            self.assertEqual(data["summary"]["attempted_tasks"], 3)
+            self.assertEqual(data["summary"]["stabilized_tasks"], 3)
+            self.assertEqual(data["summary"]["blocked_or_failed_tasks"], 0)
+            self.assertEqual(data["metrics"]["generated_artifacts"], 3)
+            self.assertEqual(data["metrics"]["validated_artifacts"], 3)
+            self.assertEqual(data["metrics"]["false_discharge_rate"], 0.0)
+            self.assertEqual(
+                [result["task_id"] for result in data["task_results"]],
+                ["live-provider-smoke-001", "live-provider-scale-002", "live-provider-scale-003"],
+            )
+
     def test_live_harness_failure_report_can_be_valid_evidence(self) -> None:
         validate_harness_report(
             {
@@ -166,8 +192,11 @@ class AgentHarnessTests(unittest.TestCase):
                 runtime=runtime,
                 metadata=metadata,
                 config_path="bad-verifier-config",
-                intent=LIVE_SMOKE_INTENT,
-                artifact_name=LIVE_SMOKE_ARTIFACT_NAME,
+                task=live_smoke_task(
+                    intent=LIVE_SMOKE_INTENT,
+                    artifact_name=LIVE_SMOKE_ARTIFACT_NAME,
+                    expected_content=LIVE_SMOKE_ARTIFACT_CONTENT,
+                ),
                 planner=_scripted_adapter(
                     "planner",
                     "planner-family",
@@ -216,7 +245,6 @@ class AgentHarnessTests(unittest.TestCase):
                         "obligation_discharged": True,
                     },
                 ),
-                run_mutation_campaign=True,
             )
 
             self.assertEqual(result.status, "fail")

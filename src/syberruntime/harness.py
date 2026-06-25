@@ -29,6 +29,24 @@ LIVE_SMOKE_INTENT = (
 
 
 @dataclass(frozen=True)
+class LiveHarnessTask:
+    task_id: str
+    intent: str
+    artifact_name: str
+    expected_content: str
+    run_mutation_campaign: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "intent": self.intent,
+            "artifact_name": self.artifact_name,
+            "expected_content": self.expected_content,
+            "run_mutation_campaign": self.run_mutation_campaign,
+        }
+
+
+@dataclass(frozen=True)
 class HarnessTask:
     task_id: str
     intent: str
@@ -141,6 +159,52 @@ def default_scripted_tasks() -> tuple[HarnessTask, ...]:
     )
 
 
+def live_smoke_task(
+    *,
+    task_id: str = "live-provider-smoke-001",
+    intent: str = LIVE_SMOKE_INTENT,
+    artifact_name: str = LIVE_SMOKE_ARTIFACT_NAME,
+    expected_content: str = LIVE_SMOKE_ARTIFACT_CONTENT,
+    run_mutation_campaign: bool = True,
+) -> LiveHarnessTask:
+    return LiveHarnessTask(
+        task_id=task_id,
+        intent=intent,
+        artifact_name=artifact_name,
+        expected_content=expected_content,
+        run_mutation_campaign=run_mutation_campaign,
+    )
+
+
+def default_live_scale_tasks() -> tuple[LiveHarnessTask, ...]:
+    return (
+        live_smoke_task(),
+        _exact_live_task(
+            task_id="live-provider-scale-002",
+            artifact_name="agent-scale-alpha.txt",
+            expected_content="agent-scale-alpha-token\n",
+        ),
+        _exact_live_task(
+            task_id="live-provider-scale-003",
+            artifact_name="agent-scale-beta.txt",
+            expected_content="agent-scale-beta-token\n",
+        ),
+    )
+
+
+def _exact_live_task(*, task_id: str, artifact_name: str, expected_content: str) -> LiveHarnessTask:
+    intent = (
+        f"Create a local SyberRuntime text artifact named {artifact_name} whose content is exactly "
+        f"{expected_content!r}, then verify it with a deterministic text_equals oracle."
+    )
+    return live_smoke_task(
+        task_id=task_id,
+        intent=intent,
+        artifact_name=artifact_name,
+        expected_content=expected_content,
+    )
+
+
 def run_scripted_agent_harness(
     *,
     runtime_root: str | Path,
@@ -194,6 +258,7 @@ def run_live_agent_harness(
     intent: str = LIVE_SMOKE_INTENT,
     artifact_name: str = LIVE_SMOKE_ARTIFACT_NAME,
     run_mutation_campaign: bool = True,
+    tasks: tuple[LiveHarnessTask, ...] | None = None,
 ) -> HarnessReport:
     runtime = Runtime(runtime_root, policy=FixedPolicy(default_profile="production"))
     metadata = IntentMetadata(
@@ -209,16 +274,24 @@ def run_live_agent_harness(
         "generator": bundle.generator.spec.to_dict(),
         "verifier": bundle.verifier.spec.to_dict(),
     }
-    task_result = _run_live_task(
-        runtime=runtime,
-        metadata=metadata,
-        config_path=config_path,
-        intent=intent,
-        artifact_name=artifact_name,
-        planner=bundle.planner,
-        generator=bundle.generator,
-        verifier=bundle.verifier,
-        run_mutation_campaign=run_mutation_campaign,
+    selected_tasks = tasks or (
+        live_smoke_task(
+            intent=intent,
+            artifact_name=artifact_name,
+            run_mutation_campaign=run_mutation_campaign,
+        ),
+    )
+    results = tuple(
+        _run_live_task(
+            runtime=runtime,
+            metadata=metadata,
+            config_path=config_path,
+            task=task,
+            planner=bundle.planner,
+            generator=bundle.generator,
+            verifier=bundle.verifier,
+        )
+        for task in selected_tasks
     )
     metrics = runtime.metrics().to_dict()
     payload = {
@@ -229,7 +302,7 @@ def run_live_agent_harness(
         "provider_config_path": str(config_path),
         "model_assignments": model_assignments,
         "intent_metadata": metadata.to_dict(),
-        "task_results": [task_result.to_dict()],
+        "task_results": [result.to_dict() for result in results],
         "metrics": metrics,
     }
     return HarnessReport(
@@ -238,7 +311,7 @@ def run_live_agent_harness(
         protocol_path=str(protocol_path),
         runtime_root=str(runtime.root),
         intent_metadata=metadata,
-        task_results=(task_result,),
+        task_results=results,
         metrics=metrics,
         mode="live",
         provider_config_path=str(config_path),
@@ -305,21 +378,19 @@ def _run_live_task(
     runtime: Runtime,
     metadata: IntentMetadata,
     config_path: str | Path,
-    intent: str,
-    artifact_name: str,
+    task: LiveHarnessTask,
     planner: Any,
     generator: Any,
     verifier: Any,
-    run_mutation_campaign: bool,
 ) -> HarnessTaskResult:
     thread_id = None
     artifact_digest = None
     try:
-        thread = runtime.create_thread(intent=intent, actor=metadata.principal, intent_metadata=metadata)
+        thread = runtime.create_thread(intent=task.intent, actor=metadata.principal, intent_metadata=metadata)
         thread_id = thread.operation.thread_id
         result = runtime.run_ai_loop(
-            intent=intent,
-            artifact_name=artifact_name,
+            intent=task.intent,
+            artifact_name=task.artifact_name,
             planner=planner,
             generator=generator,
             verifier=verifier,
@@ -328,7 +399,7 @@ def _run_live_task(
         )
         artifact_digest = result.artifact_digest
         mutation_report = None
-        if run_mutation_campaign and result.stabilized and result.verifier_output.checkable_oracle is not None:
+        if task.run_mutation_campaign and result.stabilized and result.verifier_output.checkable_oracle is not None:
             _entry, report = runtime.run_mutation_campaign(
                 result.feature_entry.operation.thread_id,
                 artifact_digest=result.artifact_digest,
@@ -339,7 +410,7 @@ def _run_live_task(
             mutation_report = report.to_dict()
         failure = None if result.stabilized else f"live provider task did not stabilize using config {config_path}"
         return HarnessTaskResult(
-            task_id="live-provider-smoke-001",
+            task_id=task.task_id,
             status="pass" if result.stabilized else "fail",
             thread_id=result.feature_entry.operation.thread_id,
             artifact_digest=artifact_digest,
@@ -351,7 +422,7 @@ def _run_live_task(
     except Exception as exc:  # noqa: BLE001 - provider boundary failures are evidence.
         artifact_digest = artifact_digest or _latest_thread_artifact_digest(runtime, thread_id)
         return HarnessTaskResult(
-            task_id="live-provider-smoke-001",
+            task_id=task.task_id,
             status="fail",
             thread_id=thread_id,
             artifact_digest=artifact_digest,
