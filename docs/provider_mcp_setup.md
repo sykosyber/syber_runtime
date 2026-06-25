@@ -15,6 +15,7 @@ model inference remains external and replaceable.
 | Local fake-provider tests | v1 section 7 requires measured progress and recoverability; provider wiring must be testable without spending model calls. |
 | JSON-only role prompting and extraction | v1 sections 4.1 and 4.2 require strict model contracts for generator and verifier outputs; v0.6 section 3.1 requires typed operations rather than prose-only coordination. |
 | Planner operation-verb validation | v0.6 section 3.1 defines the open versioned verb set; v1 section 4.3 requires the planner to emit a typed operation graph. |
+| Generator exact-content prompting | v0.6 section 3.1 requires generated artifacts to incur explicit verification debt; v1 section 4.1 requires the artifact payload to be strict JSON. Exact-content prompts must distinguish JSON escapes from literal artifact bytes before verification. |
 | Verifier oracle-shape prompting | v0.6 section 3.5 prefers deterministic checks and names false discharge as a first-class failure; v1 section 4.2 requires a checkable oracle before trust is discharged. |
 
 ## Available Providers
@@ -77,6 +78,9 @@ Then run the release-gate check with the same provider config:
   `Refactor`, `Research`, `Verify`, `Compress`, `Simulate`, or `Stabilize`.
   Informal verbs such as "Design" or "Summarize" are rejected before they can
   enter the operation graph.
+- Generator prompts for exact-content tasks now include the exact JSON string
+  expected in the `artifact` field and clarify that JSON `\n` decodes to an
+  actual newline, not the two literal characters backslash and `n`.
 - Verifier prompts now enumerate the only accepted deterministic oracle shapes:
   `text_equals`, `text_contains`, and `sha256_equals`, each with a non-empty
   `kind` and string `expected`. Exact-content intents instruct the verifier to

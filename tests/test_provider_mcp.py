@@ -70,6 +70,28 @@ class ProviderMCPTests(unittest.TestCase):
         self.assertIn('"expected": "agent-live-smoke-token\\n"', prompt)
         self.assertIn('"kind": "text_equals"', prompt)
 
+    def test_provider_prompt_constrains_generator_exact_newline_artifact(self) -> None:
+        prompt = _user_prompt(
+            {
+                "role": "generator",
+                "operation_type": "Feature",
+                "system": "runtime",
+                "payload": {
+                    "intent": (
+                        "Create a local SyberRuntime text artifact named agent-scale-alpha.txt whose content "
+                        "is exactly 'agent-scale-alpha-token\\n', then verify it with a deterministic "
+                        "text_equals oracle."
+                    ),
+                    "artifact_name": "agent-scale-alpha.txt",
+                },
+            }
+        )
+
+        self.assertIn('artifact field must be exactly "agent-scale-alpha-token\\n"', prompt)
+        self.assertIn("actual newline after JSON decoding", prompt)
+        self.assertIn("Do not emit the two literal characters backslash and n", prompt)
+        self.assertIn("not a filename", prompt)
+
     def test_planner_contract_rejects_informal_verbs(self) -> None:
         with self.assertRaisesRegex(ModelContractError, "SyberRuntime operation verb"):
             PlannerOutput.from_payload(

@@ -315,13 +315,31 @@ def _role_constraints(role: str, request: dict[str, Any]) -> str:
             "model_role verifier. Do not use informal verbs such as Identify, Define, Design, Sketch, or Summarize."
         )
     if role == "generator":
-        return (
-            "Create the requested local artifact content in the artifact field. Do not describe a provider "
-            "architecture or setup process. If the intent specifies exact text, emit that text verbatim."
-        )
+        return _generator_constraints(request)
     if role == "verifier":
         return _verifier_constraints(request)
     return "Return the requested SyberRuntime role payload."
+
+
+def _generator_constraints(request: dict[str, Any]) -> str:
+    payload = request.get("payload", {})
+    intent = str(payload.get("intent", "")) if isinstance(payload, dict) else ""
+    expected = _exact_content_from_intent(intent)
+    constraints = (
+        "Create the requested local artifact content in the artifact field. Do not describe a provider "
+        "architecture or setup process. The artifact value must be the artifact content itself, not a filename, "
+        "plan, quoted display string, escaped display string, or Markdown block."
+    )
+    if expected is not None:
+        constraints += (
+            f" This request states exact expected text {expected!r}; the JSON artifact field must be exactly "
+            f"{json.dumps(expected)}. If that JSON string contains \\n, it means an actual newline after JSON "
+            "decoding. Do not emit the two literal characters backslash and n unless the expected text itself "
+            "contains those two characters."
+        )
+    else:
+        constraints += " If the intent specifies exact text, emit that text verbatim."
+    return constraints
 
 
 def _verifier_constraints(request: dict[str, Any]) -> str:
