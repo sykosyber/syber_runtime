@@ -19,8 +19,9 @@ class Phase5AcceptanceTests(unittest.TestCase):
         self.assertEqual(report.overall_status, "ready_with_warnings")
         self.assertEqual(report.failures, ())
         self.assertIn("live_mcp_real_ai_endpoint", warning_ids)
-        self.assertIn("dogfooding_rq0_rq6_results", warning_ids)
+        self.assertNotIn("dogfooding_rq0_rq6_results", warning_ids)
         criterion_by_id = {criterion.id: criterion for criterion in report.criteria}
+        self.assertEqual(criterion_by_id["dogfooding_rq0_rq6_results"].status, "pass")
         self.assertEqual(criterion_by_id["agentic_intent_harness_baseline"].status, "pass")
         self.assertIn(
             criterion_by_id["agentic_intent_harness_live_smoke"].status,
@@ -37,6 +38,7 @@ class Phase5AcceptanceTests(unittest.TestCase):
 
         self.assertEqual(report["failure_count"], 0)
         self.assertEqual(report["overall_status"], "ready_with_warnings")
+        self.assertEqual(report["warning_count"], 1)
         self.assertTrue(all("citation" in criterion for criterion in report["criteria"]))
 
 

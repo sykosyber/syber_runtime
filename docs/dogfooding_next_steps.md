@@ -1,8 +1,8 @@
-# Dogfooding Next Steps
+# Dogfooding Evidence
 
-The roadmap's next hard acceptance item is not another local feature. It is the
-evidence run: use SyberRuntime to build SyberRuntime work and report RQ0/RQ6
-results under the pre-registered protocol.
+The first dogfood evidence run has been collected. It uses SyberRuntime to
+record, verify, stabilize, and mutation-measure a real SyberRuntime acceptance
+hardening change under the pre-registered RQ0/RQ6 protocol.
 
 ## Roadmap Requirement
 
@@ -15,7 +15,13 @@ results under the pre-registered protocol.
 | `docs/dogfood_reports/*.json` | v0.6 section 6 defines Tier 1 autobiographical evidence as n=1 feasibility only; v1 section 7 requires those results for the institutional ask. |
 | `model_capability_envelope` | v1 section 6 identifies model/API churn as a risk; v1 Phase 3 and section 7 require measured claims to record the model capability envelope under which evidence was produced. |
 
-## Minimum Evidence Run
+## Recorded Evidence
+
+| Report | Runtime root | Subject | Result |
+|---|---|---|---|
+| `docs/dogfood_reports/rq0_rq6_run_001.json` | `.syberruntime-dogfood-rq0-rq6-001` | Acceptance hardening for dogfood evidence reports | 3/3 artifacts validated; residual debt 0.0; false discharge 0.0; structural rigor 1.0; production discharge efficiency 1.0 |
+
+## Additional Evidence Runs
 
 1. Choose one small, real SyberRuntime improvement.
 2. Build it through the operation/debt grammar in a runtime root.
@@ -27,7 +33,7 @@ results under the pre-registered protocol.
 
 ## Commands
 
-Create a report from the current runtime root:
+Create a report from a runtime root:
 
 ```powershell
 $env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
@@ -50,8 +56,7 @@ Audit with dogfooding evidence:
 
 The first report supports existence and feasibility claims only. It does not
 support population-level claims, and acceptance should stay at
-`ready_with_warnings` until both real MCP execution and real dogfooding evidence
-are present.
+`ready_with_warnings` until real MCP execution is configured and exercised.
 
 If the run uses constrained provider access, its claim should be framed as a
 lower-bound demonstration of SyberRuntime's control architecture. Stronger

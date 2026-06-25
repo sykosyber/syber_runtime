@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -311,18 +312,39 @@ def _audit_dogfood_reports(report_dir: Path) -> AcceptanceCriterion:
         )
     try:
         loaded = [load_dogfood_report(path) for path in reports]
-    except (OSError, ValueError, KeyError) as exc:
+        raw_reports = [json.loads(path.read_text(encoding="utf-8")) for path in reports]
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         return AcceptanceCriterion(
             id="dogfooding_rq0_rq6_results",
             status="fail",
             citation="v0.6 section 6; v1 Phase 3; v1 section 7",
             evidence=f"dogfooding report directory contains an invalid report: {exc}",
         )
+    problems: list[str] = []
+    for path, report, raw_report in zip(reports, loaded, raw_reports, strict=True):
+        if not report.artifact_digests:
+            problems.append(f"{path.name} has no artifact digests")
+        envelope = raw_report.get("model_capability_envelope")
+        if not isinstance(envelope, dict):
+            problems.append(f"{path.name} has no explicit model capability envelope")
+        elif not envelope.get("claim_scope") or not envelope.get("interpretation"):
+            problems.append(f"{path.name} has an incomplete model capability envelope")
+    if problems:
+        return AcceptanceCriterion(
+            id="dogfooding_rq0_rq6_results",
+            status="fail",
+            citation="v0.6 section 6; v1 Phase 3; v1 section 7",
+            evidence="; ".join(problems),
+        )
+    artifact_count = sum(len(report.artifact_digests) for report in loaded)
     return AcceptanceCriterion(
         id="dogfooding_rq0_rq6_results",
         status="pass",
         citation="v0.6 section 6; v1 Phase 3; v1 section 7",
-        evidence=f"{len(loaded)} dogfooding report(s) found under the pre-registered protocol",
+        evidence=(
+            f"{len(loaded)} dogfooding report(s) found under the pre-registered protocol; "
+            f"artifact_digests={artifact_count}; model capability envelopes present"
+        ),
     )
 
 

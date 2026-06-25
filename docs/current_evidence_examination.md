@@ -22,11 +22,10 @@ Date: 2026-06-25
    9/9 mutants killed. This satisfies the dedicated `live_scale3_campaign`
    acceptance gate.
 
-2. The remaining release warnings are not hidden engineering failures.
-   Local acceptance remains `ready_with_warnings` because no real MCP config is
-   supplied to the local acceptance command and no `docs/dogfood_reports/`
-   evidence directory exists. These are external evidence gates, not uncovered
-   local test failures.
+2. The first dogfood report is now present.
+   `docs/dogfood_reports/rq0_rq6_run_001.json` records the acceptance hardening
+   dogfood pass with three artifact digests, zero residual debt, zero false
+   discharge, full structural rigor, and production discharge efficiency 1.0.
 
 3. The strongest current claim is bounded, not maximal.
    The model capability envelope records that constrained provider/model access
@@ -47,36 +46,30 @@ Date: 2026-06-25
 
 ## Apex Inference
 
-The next acceptance-bearing work is a real pre-registered dogfood run, not a new
-runtime subsystem. The system has already demonstrated live provider scale3
-recovery and acceptance-gated mutation measurement. The missing proof is that
-SyberRuntime can be used on its own continued development and report RQ0/RQ6
-results under the pre-registered protocol.
+The next acceptance-bearing work is the live config acceptance pass, not a new
+runtime subsystem. The system has demonstrated live provider scale3 recovery,
+acceptance-gated mutation measurement, and a first n=1 dogfood report under the
+pre-registered RQ0/RQ6 protocol. The remaining release warning is the absence of
+a supplied real MCP/model endpoint config during local acceptance.
 
 ## Recommended Sequence
 
-1. Run the first real dogfood evidence pass.
-   Use one small, real SyberRuntime improvement as the subject, record the
-   model capability envelope, generate `docs/dogfood_reports/rq0_rq6_run_001.json`,
-   and rerun `acceptance-check --dogfood-report-dir docs/dogfood_reports`.
-
-2. Then perform a live config acceptance pass.
+1. Perform a live config acceptance pass.
    Supply the real MCP config to `acceptance-check --mcp-config` so the
    `live_mcp_real_ai_endpoint` warning can move from warning to pass.
 
-3. Add provider failure analytics only if the next live or dogfood run produces
+2. Add provider failure analytics only if the next live or dogfood run produces
    repeated provider-boundary failures.
    If failures recur, promote the taxonomy into a standalone report before
    adding a Doctor Call recovery path.
 
-4. Defer Doctor Call until the failure analytics show that retry plus contextual
+3. Defer Doctor Call until the failure analytics show that retry plus contextual
    diagnostics are insufficient.
    This keeps the core small and lets the recovery design be driven by observed
    failure classes rather than speculative architecture.
 
 ## Decision
 
-Proceed with dogfooding next. It is directly required by v0.6 section 6, v1
-Phase 3, and v1 section 7; it consumes the newly added evidence schema; and it
-is the shortest path from `ready_with_warnings` toward a real release-readiness
-pass.
+Proceed with live config acceptance next. Dogfooding has moved from pending to
+first-pass evidence; the remaining release-readiness warning is the real
+MCP/model endpoint acceptance run required by v1 Phase 2 and v1 section 7.

@@ -148,6 +148,36 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
             self.assertEqual(acceptance.failures, ())
             self.assertEqual(acceptance.warnings, ())
 
+    def test_acceptance_rejects_empty_or_legacy_dogfood_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report_dir = Path(tmp) / "reports"
+            report_dir.mkdir()
+            (report_dir / "legacy-empty.json").write_text(
+                json.dumps(
+                    {
+                        "report_id": "legacy-empty",
+                        "protocol_path": "docs/rq0_rq6_preregistration.md",
+                        "runtime_root": ".syberruntime-dogfood-empty",
+                        "artifact_digests": [],
+                        "metrics": {},
+                        "notes": "Invalid fixture: no artifact evidence and no model envelope.",
+                        "scope": "n=1 feasibility evidence",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            acceptance = run_v1_acceptance_audit(
+                workspace_root=Path(__file__).resolve().parents[1],
+                dogfood_report_dir=report_dir,
+            )
+            criterion_by_id = {criterion.id: criterion for criterion in acceptance.criteria}
+
+            dogfood = criterion_by_id["dogfooding_rq0_rq6_results"]
+            self.assertEqual(dogfood.status, "fail")
+            self.assertIn("has no artifact digests", dogfood.evidence)
+            self.assertIn("has no explicit model capability envelope", dogfood.evidence)
+
 
 def _write_mcp_server(root: Path) -> Path:
     server = root / "mcp_server.py"
