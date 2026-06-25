@@ -69,6 +69,14 @@ from syberruntime.orchestration import AIOperationResult
 from syberruntime.policy import CenterPolicy, FixedPolicy, RigorProfile
 from syberruntime.projections import ArtifactState, ProjectionError, RuntimeState, ThreadState, fold_operations
 from syberruntime.runtime import Runtime
+from syberruntime.scale_analysis import (
+    Scale3CampaignAnalysis,
+    Scale3Failure,
+    Scale3RunSummary,
+    analyze_scale3_reports,
+    render_scale3_analysis_markdown,
+    write_scale3_analysis_markdown,
+)
 from syberruntime.snapshots import Snapshot, SnapshotStore, make_snapshot
 from syberruntime.verification import DeterministicVerifier, VerificationResult
 
@@ -132,6 +140,9 @@ __all__ = [
     "RuntimeMetrics",
     "RuntimeState",
     "ScriptedModelAdapter",
+    "Scale3CampaignAnalysis",
+    "Scale3Failure",
+    "Scale3RunSummary",
     "Snapshot",
     "SnapshotStore",
     "StabilizationBlockedError",
@@ -142,6 +153,7 @@ __all__ = [
     "VerificationResult",
     "VerifierOutput",
     "Verb",
+    "analyze_scale3_reports",
     "compute_runtime_metrics",
     "create_dogfood_report",
     "default_live_scale_tasks",
@@ -164,7 +176,9 @@ __all__ = [
     "run_v1_acceptance_audit",
     "run_scripted_agent_harness",
     "run_live_agent_harness",
+    "render_scale3_analysis_markdown",
     "validate_harness_report",
     "write_dogfood_report",
     "write_harness_report",
+    "write_scale3_analysis_markdown",
 ]

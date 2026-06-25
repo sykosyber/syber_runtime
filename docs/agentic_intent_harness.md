@@ -16,6 +16,7 @@ records who or what originated the intent and how acceptance was judged.
 | Scripted task suite | v0.6 section 6 Tier 1 supports n=1 feasibility evidence; v1 Phase 3 requires measuring the runtime instead of relying on intuition. | Implemented with one expected pass and one expected blocked verification case. |
 | Live provider smoke task | v1 Phase 2 requires real AI via MCP; v1 Phase 3 requires measured outcomes; v0.6 section 3.1 requires typed Feature -> Verify grammar. | Implemented as one exact local text artifact plus deterministic `text_equals` verification. |
 | Live `scale3` provider campaign | v1 Phase 3 requires measured scaling evidence; v0.6 section 3.6 frames requisite variety as matching generative variety with verification capacity; v0.6 section 3.8 requires inspectable provenance. | Implemented as three exact local text artifacts, each independently planned, generated, verified, stabilized, and mutation-measured in one report. |
+| Scale3 campaign analysis report | v1 Phase 3 requires measured outcomes; v0.6 section 3.8 requires inspectable provenance; v1 section 7 requires a fresh reader to trace what happened in minutes. | Implemented as `scale3-analysis`, producing `docs/live_scale3_campaign_analysis.md` from existing live reports without spending provider calls. |
 | Failed-run evidence preservation | v0.6 section 3.8 requires inspectable provenance; v1 section 7 requires a fresh reader to trace an artifact's making in minutes. | Failed live runs preserve `thread_id` and `artifact_digest` when those exist, rather than collapsing partial progress into an opaque failure. |
 | Provider failure taxonomy in reports | v0.6 section 3.8 requires inspectable provenance; v1 Phase 3 requires measured outcomes; v1 section 7 requires failures to be traceable rather than anecdotal. | Live task results include `failure_class` and provider diagnostics when the MCP boundary exposes them. |
 | Human acceptance checkpoint | v0.6 section 1 frames human understanding as the protected resource; agentic intent can originate work, but institutional claims still need accountable review. | Deferred from v0 automation; report review remains human. |
@@ -107,6 +108,13 @@ $env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-run
 
 Using `--task-set scale3` with `examples/mcp_adapter_config.example.json`
 spends real provider calls.
+
+Analyze existing live `scale3` reports without making provider calls:
+
+```powershell
+$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime scale3-analysis --report docs\agentic_harness_reports\agentic-live-scale3-001.json --report docs\agentic_harness_reports\agentic-live-scale3-002.json --report docs\agentic_harness_reports\agentic-live-scale3-003.json --output docs\live_scale3_campaign_analysis.md
+```
 
 ## V0 Acceptance
 

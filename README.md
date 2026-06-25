@@ -64,6 +64,7 @@ Important commands:
 - `shred-blob`
 - `dogfood-report`
 - `agent-harness`
+- `scale3-analysis`
 - `acceptance-check`
 
 ## Acceptance Boundary
@@ -122,6 +123,13 @@ Run the three-task scale campaign through mock MCP wiring:
 $env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
 $env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 & 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live-scale3-mock agent-harness run --mode live --task-set scale3 --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-scale3-mock-001 --output docs\agentic_harness_reports\agentic-live-scale3-mock-001.json
+```
+
+Analyze existing live `scale3` campaign reports without spending provider calls:
+
+```powershell
+$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime scale3-analysis --report docs\agentic_harness_reports\agentic-live-scale3-001.json --report docs\agentic_harness_reports\agentic-live-scale3-002.json --report docs\agentic_harness_reports\agentic-live-scale3-003.json --output docs\live_scale3_campaign_analysis.md
 ```
 
 See `docs/live_mcp_adapter_config.md`, `docs/dogfooding_next_steps.md`, and

@@ -18,6 +18,7 @@ from syberruntime.harness import (
 )
 from syberruntime.hashing import canonical_json
 from syberruntime.runtime import Runtime
+from syberruntime.scale_analysis import analyze_scale3_reports, write_scale3_analysis_markdown
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -111,6 +112,10 @@ def main(argv: list[str] | None = None) -> int:
     harness_parser.add_argument("--benchmark-id", default="agentic-intent-harness-v0")
     harness_parser.add_argument("--acceptance-authority", default="deterministic-oracle")
     harness_parser.add_argument("--task-set", choices=("smoke", "scale3"), default="smoke")
+
+    scale3_analysis_parser = subparsers.add_parser("scale3-analysis")
+    scale3_analysis_parser.add_argument("--report", action="append", required=True, type=Path)
+    scale3_analysis_parser.add_argument("--output", required=True, type=Path)
 
     acceptance_parser = subparsers.add_parser("acceptance-check")
     acceptance_parser.add_argument("--mcp-config", type=Path)
@@ -254,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         path = write_harness_report(report, output)
         _print_json({"path": str(path), "report": report.to_dict()})
+    elif args.command == "scale3-analysis":
+        analysis = analyze_scale3_reports(tuple(args.report))
+        path = write_scale3_analysis_markdown(analysis, args.output)
+        _print_json({"path": str(path), "analysis": analysis.to_dict()})
     elif args.command == "acceptance-check":
         _print_json(
             run_v1_acceptance_audit(
