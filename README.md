@@ -13,20 +13,35 @@ The implementation follows `SyberRuntime_v1_Implementation_Roadmap.md`:
 - Phase 4: hardening, provenance export, inspection, snapshots, deletion-rights path.
 - Phase 5: release-readiness audit derived from v1 section 7.
 
-The current release-gate work adds the concrete handoff for the two remaining
-v1 section 7 items: configured MCP/model execution and RQ0/RQ6 dogfooding
-reports.
+## Layout
+
+- `syberruntime` (package root): the kernel — operation grammar, hash-chained
+  log, projections, debt, deterministic verification, Merkle proofs, snapshots.
+  The root `__init__` exports only this stable surface.
+- `syberruntime.ai`: the orchestration layer — prompts and the
+  plan -> generate -> verify -> stabilize loop driving model adapters.
+- `syberruntime.providers`: the MCP stdio server split by responsibility
+  (`server` framing, `clients` provider HTTP dialects, `payload` prompt/contract
+  enforcement). `syberruntime.provider_mcp` remains as a compatibility shim for
+  existing adapter configs.
+- Evidence tooling (`harness`, `dogfood`, `acceptance`, `scale_analysis`,
+  `reports`) is imported from its submodules directly.
+
+The operation log takes an advisory lock on append and caches validated
+entries per process, so appends and state rebuilds are O(new entries). A cold
+instance (every CLI invocation) still revalidates the full hash chain.
 
 ## Run Tests
 
-On this Windows workspace, use the bundled Python executable if `python` is not
-associated:
+Use any Python 3.11+ interpreter (`unittest` is the test runner; there are no
+third-party dependencies):
 
 ```powershell
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m unittest discover -s tests
+python -m unittest discover -s tests
 ```
 
-Run the full local verification gate:
+Run the full local verification gate (resolves Python from
+`SYBERRUNTIME_PYTHON`, then `python` on PATH, then the `py` launcher):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
@@ -41,9 +56,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1 -IncludeMockLiveHa
 ## CLI
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --help
+$env:PYTHONPATH="$PWD\src"
+python -m syberruntime.cli --help
 ```
+
+(Or `pip install -e .` once and use the `syber` entry point without
+`PYTHONPATH`.)
 
 Important commands:
 
@@ -72,19 +90,19 @@ Important commands:
 Run:
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli acceptance-check
+$env:PYTHONPATH="$PWD\src"
+python -m syberruntime.cli acceptance-check
 ```
 
 Write the real-config acceptance audit to a canonical JSON artifact:
 
 ```powershell
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli acceptance-check --mcp-config examples\mcp_adapter_config.example.json --dogfood-report-dir docs\dogfood_reports --output docs\acceptance_reports\live_mcp_acceptance_001.json
+python -m syberruntime.cli acceptance-check --mcp-config examples\mcp_adapter_config.example.json --dogfood-report-dir docs\dogfood_reports --output docs\acceptance_reports\live_mcp_acceptance_002.json
 ```
 
 Expected local status without `--mcp-config` is `ready_with_warnings`. With the
 real MCP config and dogfood report supplied, the recorded acceptance artifact is
-`docs/acceptance_reports/live_mcp_acceptance_001.json` with `overall_status:
+`docs/acceptance_reports/live_mcp_acceptance_002.json` with `overall_status:
 pass`. The first real RQ0/RQ6 dogfood report is present under
 `docs/dogfood_reports/rq0_rq6_run_001.json`.
 The scripted Agentic Intent Harness baseline is audited separately and should
@@ -93,12 +111,22 @@ Live-mode Agentic Intent Harness reports are also audited separately; absence is
 a warning until a live smoke report is intentionally generated. The passing
 three-task live scale campaign is audited as `live_scale3_campaign`.
 
+### Evidence-integrity caveat for pre-2026-07-05 live reports
+
+Live harness reports recorded before 2026-07-05 were generated with provider
+prompts that restated the expected artifact content and oracle extracted from
+the task intent (see `syberruntime.providers.payload` history). Those runs
+therefore measured instruction-following under answer hints, not independent
+generation plus verification. The hint injection has been removed; live smoke
+and scale3 have been regenerated as `agentic-live-004` and
+`agentic-live-scale3-004` under the current prompts.
+
 Run the configured adapter smoke path:
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-$env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime ai-loop --config examples\mock_mcp_adapter_config.example.json --intent "Exercise configured adapter path" --artifact-name configured.txt
+$env:PYTHONPATH="$PWD\src"
+$env:SYBERRUNTIME_PYTHON=(Get-Command python).Source
+python -m syberruntime.cli --root .syberruntime ai-loop --config examples\mock_mcp_adapter_config.example.json --intent "Exercise configured adapter path" --artifact-name configured.txt
 ```
 
 For a real MCP/model endpoint, copy `examples/mcp_adapter_config.example.json`
@@ -107,45 +135,40 @@ and replace provider/model fields as needed. See `docs/provider_mcp_setup.md`.
 Collect a dogfooding report from a runtime root:
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol."
+python -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol."
 ```
 
 When model/API access is constrained, record the envelope instead of
 overclaiming:
 
 ```powershell
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol." --model-constraint "Available API access did not include preferred frontier models." --preferred-unavailable-model "Claude Opus-class planner/verifier" --preferred-unavailable-model "GPT-5.5-class planner/generator"
+python -m syberruntime.cli --root .syberruntime dogfood-report --output docs\dogfood_reports\rq0_rq6_run_001.json --notes "First real n=1 dogfooding run under the pre-registered protocol." --model-constraint "Available API access did not include preferred frontier models." --preferred-unavailable-model "Claude Opus-class planner/verifier" --preferred-unavailable-model "GPT-5.5-class planner/generator"
 ```
 
 Run Agentic Intent Harness v0 without spending provider calls:
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent agent-harness run --run-id agentic-v0-001 --output docs\agentic_harness_reports\agentic-v0-001.json
+python -m syberruntime.cli --root .syberruntime-agent agent-harness run --run-id agentic-v0-001 --output docs\agentic_harness_reports\agentic-v0-001.json
 ```
 
 Run Agentic Intent Harness live-mode wiring with the mock MCP server:
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-$env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live-mock agent-harness run --mode live --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-mock-001 --output docs\agentic_harness_reports\agentic-live-mock-001.json
+$env:SYBERRUNTIME_PYTHON=(Get-Command python).Source
+python -m syberruntime.cli --root .syberruntime-agent-live-mock agent-harness run --mode live --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-mock-001 --output docs\agentic_harness_reports\agentic-live-mock-001.json
 ```
 
 Run the three-task scale campaign through mock MCP wiring:
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-$env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live-scale3-mock agent-harness run --mode live --task-set scale3 --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-scale3-mock-001 --output docs\agentic_harness_reports\agentic-live-scale3-mock-001.json
+$env:SYBERRUNTIME_PYTHON=(Get-Command python).Source
+python -m syberruntime.cli --root .syberruntime-agent-live-scale3-mock agent-harness run --mode live --task-set scale3 --config examples\mock_mcp_adapter_config.example.json --run-id agentic-live-scale3-mock-001 --output docs\agentic_harness_reports\agentic-live-scale3-mock-001.json
 ```
 
 Analyze existing live `scale3` campaign reports without spending provider calls:
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime scale3-analysis --report docs\agentic_harness_reports\agentic-live-scale3-001.json --report docs\agentic_harness_reports\agentic-live-scale3-002.json --report docs\agentic_harness_reports\agentic-live-scale3-003.json --output docs\live_scale3_campaign_analysis.md
+python -m syberruntime.cli --root .syberruntime scale3-analysis --report docs\agentic_harness_reports\agentic-live-scale3-004.json --output docs\live_scale3_campaign_analysis.md
 ```
 
 See `docs/live_mcp_adapter_config.md`, `docs/dogfooding_next_steps.md`, and
@@ -155,6 +178,6 @@ See `docs/agentic_intent_harness.md` for the agentic benchmark protocol.
 ## Demo
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' examples\phase4_demo.py
+$env:PYTHONPATH="$PWD\src"
+python examples\phase4_demo.py
 ```

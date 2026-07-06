@@ -21,7 +21,7 @@ The expected no-config local status is `ready_with_warnings`, because local-only
 verification does not assume external provider credentials. With the real MCP
 config and dogfood report supplied, the recorded status is `pass`.
 
-Recorded pass: `docs/acceptance_reports/live_mcp_acceptance_001.json`.
+Recorded pass: `docs/acceptance_reports/live_mcp_acceptance_002.json`.
 
 This keeps local verification honest while preserving a concrete release-gate
 artifact for the provider-backed pass.

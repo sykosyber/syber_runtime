@@ -88,12 +88,13 @@ Then run the release-gate check with the same provider config:
   `Refactor`, `Research`, `Verify`, `Compress`, `Simulate`, or `Stabilize`.
   Informal verbs such as "Design" or "Summarize" are rejected before they can
   enter the operation graph.
-- Generator prompts for exact-content tasks now include the exact JSON string
-  expected in the `artifact` field and clarify that JSON `\n` decodes to an
-  actual newline, not the two literal characters backslash and `n`.
+- Generator prompts for exact-content tasks require the model to derive the
+  artifact content from the request intent itself. They clarify that JSON `\n`
+  decodes to an actual newline, not the two literal characters backslash and
+  `n`, but they do not restate the expected answer.
 - Verifier prompts now enumerate the only accepted deterministic oracle shapes:
   `text_equals`, `text_contains`, and `sha256_equals`, each with a non-empty
   `kind` and string `expected`. Exact-content intents instruct the verifier to
-  use `text_equals` with the expected text from the intent.
+  use `text_equals` and derive the expected text from the request intent itself.
 - Anthropic and OpenAI support is implemented but not required for the current
   Google/DeepSeek path.
