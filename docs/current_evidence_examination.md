@@ -15,11 +15,14 @@ Date: 2026-06-25
 ## Findings
 
 1. The live scale3 path is no longer merely anecdotal.
-   The report corpus contains three live scale3 campaign runs:
+   The report corpus contains four live scale3 campaign runs:
    `agentic-live-scale3-001` stabilized 2/3 tasks, `agentic-live-scale3-002`
-   stabilized 2/3 tasks, and `agentic-live-scale3-003` stabilized 3/3 tasks
-   with zero false discharge, zero residual debt, full structural rigor, and
-   9/9 mutants killed. This satisfies the dedicated `live_scale3_campaign`
+   stabilized 2/3 tasks, `agentic-live-scale3-003` stabilized 3/3 hinted-era
+   tasks (all three retired to `docs/agentic_harness_reports/archive/`,
+   outside acceptance-audit discovery), and `agentic-live-scale3-004`
+   regenerated the campaign after exact-answer prompt injection was removed. The regenerated run stabilized 3/3
+   tasks with zero false discharge, zero residual debt, full structural rigor,
+   and 9/9 mutants killed. This satisfies the dedicated `live_scale3_campaign`
    acceptance gate.
 
 2. The first dogfood report is now present.
@@ -45,9 +48,10 @@ Date: 2026-06-25
    next acceptance blocker has been retired.
 
 6. The real MCP config acceptance pass is now recorded.
-   `docs/acceptance_reports/live_mcp_acceptance_001.json` reports
+   `docs/acceptance_reports/live_mcp_acceptance_002.json` reports
    `overall_status: pass`, `failure_count: 0`, and `warning_count: 0` with the
-   real MCP config and dogfood evidence supplied.
+   real MCP config, dogfood evidence, and regenerated un-hinted scale3 evidence
+   supplied.
 
 ## Apex Inference
 

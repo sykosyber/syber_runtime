@@ -86,9 +86,9 @@ on purpose: create `agent-live-smoke.txt` with content
 oracle.
 
 ```powershell
-$env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-$env:SYBERRUNTIME_PYTHON='C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime-agent-live agent-harness run --mode live --config examples\mcp_adapter_config.example.json --run-id agentic-live-smoke-001 --output docs\agentic_harness_reports\agentic-live-smoke-001.json
+$env:PYTHONPATH="$PWD\src"
+$env:SYBERRUNTIME_PYTHON=(Get-Command python).Source
+python -m syberruntime.cli --root .syberruntime-agent-live agent-harness run --mode live --config examples\mcp_adapter_config.example.json --run-id agentic-live-005 --output docs\agentic_harness_reports\agentic-live-005.json
 ```
 
 Use the mock MCP config when testing live-mode wiring without provider calls:
@@ -114,7 +114,7 @@ Analyze existing live `scale3` reports without making provider calls:
 
 ```powershell
 $env:PYTHONPATH='D:\syberlabs\syber_runtime\src'
-& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime scale3-analysis --report docs\agentic_harness_reports\agentic-live-scale3-001.json --report docs\agentic_harness_reports\agentic-live-scale3-002.json --report docs\agentic_harness_reports\agentic-live-scale3-003.json --output docs\live_scale3_campaign_analysis.md
+& 'C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m syberruntime.cli --root .syberruntime scale3-analysis --report docs\agentic_harness_reports\agentic-live-scale3-004.json --output docs\live_scale3_campaign_analysis.md
 ```
 
 ## V0 Acceptance
