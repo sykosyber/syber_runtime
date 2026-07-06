@@ -8,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from syberruntime import BlobStore, analyze_scale3_reports, render_scale3_analysis_markdown  # noqa: E402
+from syberruntime import BlobStore  # noqa: E402
+from syberruntime.scale_analysis import analyze_scale3_reports, render_scale3_analysis_markdown  # noqa: E402
 
 
 class Scale3AnalysisTests(unittest.TestCase):
@@ -89,6 +90,25 @@ class Scale3AnalysisTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "not a scale3 campaign"):
                 analyze_scale3_reports((report,))
+
+    def test_single_scale3_report_uses_regenerated_evidence_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = _write_report(
+                Path(tmp) / "scale3-004.json",
+                run_id="agentic-live-scale3-004",
+                task_results=[
+                    _task("live-provider-smoke-001", status="pass", stabilized=True, mutation=True),
+                    _task("live-provider-scale-002", status="pass", stabilized=True, mutation=True),
+                    _task("live-provider-scale-003", status="pass", stabilized=True, mutation=True),
+                ],
+                generated=3,
+                validated=3,
+            )
+
+            analysis = analyze_scale3_reports((report,))
+
+            self.assertIn("regenerated scale3 campaign", analysis.apex_inference)
+            self.assertNotIn("earlier live runs", analysis.apex_inference)
 
 
 def _write_report(

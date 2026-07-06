@@ -83,74 +83,96 @@ class RuntimeState:
         }
 
 
-def fold_operations(operations: list[Operation] | tuple[Operation, ...]) -> RuntimeState:
-    operation_map: dict[str, Operation] = {}
-    thread_builders: dict[str, dict[str, Any]] = {}
-    artifacts: dict[str, ArtifactState] = {}
-    edges: list[tuple[str, str]] = []
-    obligations = {}
+class StateBuilder:
+    """Incremental fold over operations.
 
-    for operation in operations:
-        if operation.id in operation_map:
+    `apply` folds one operation into mutable accumulators; `build` freezes the
+    current accumulators into a RuntimeState snapshot without invalidating the
+    builder, so callers can keep applying newer operations afterwards.
+    """
+
+    def __init__(self) -> None:
+        self._operations: dict[str, Operation] = {}
+        self._thread_builders: dict[str, dict[str, Any]] = {}
+        self._artifacts: dict[str, ArtifactState] = {}
+        self._edges: list[tuple[str, str]] = []
+        self._obligations: dict[str, Any] = {}
+
+    @property
+    def operation_count(self) -> int:
+        return len(self._operations)
+
+    def apply(self, operation: Operation) -> None:
+        if operation.id in self._operations:
             raise ProjectionError(f"Duplicate operation id: {operation.id}")
 
         for parent in operation.parents:
-            if parent not in operation_map:
+            if parent not in self._operations:
                 raise ProjectionError(f"Operation {operation.id} references unknown parent {parent}")
-            edges.append((parent, operation.id))
+            self._edges.append((parent, operation.id))
 
-        operation_map[operation.id] = operation
+        self._operations[operation.id] = operation
 
         if operation.type == Verb.THREAD_CREATE.value:
-            _create_thread_builder(thread_builders, operation, forked_from=None)
+            _create_thread_builder(self._thread_builders, operation, forked_from=None)
         elif operation.type == Verb.THREAD_FORK.value:
             source_thread_id = operation.params.get("source_thread_id")
-            if not source_thread_id or source_thread_id not in thread_builders:
+            if not source_thread_id or source_thread_id not in self._thread_builders:
                 raise ProjectionError(f"ThreadFork {operation.id} references unknown source thread")
-            _create_thread_builder(thread_builders, operation, forked_from=str(source_thread_id))
+            _create_thread_builder(self._thread_builders, operation, forked_from=str(source_thread_id))
         else:
-            if operation.thread_id not in thread_builders:
+            if operation.thread_id not in self._thread_builders:
                 raise ProjectionError(f"Operation {operation.id} references unknown thread {operation.thread_id}")
-            _append_to_thread(thread_builders[operation.thread_id], operation)
+            _append_to_thread(self._thread_builders[operation.thread_id], operation)
 
         for ref in operation.outputs:
-            artifacts[ref.digest] = ArtifactState(ref=ref, created_by=operation.id, thread_id=operation.thread_id)
-            builder = thread_builders[operation.thread_id]
+            self._artifacts[ref.digest] = ArtifactState(
+                ref=ref, created_by=operation.id, thread_id=operation.thread_id
+            )
+            builder = self._thread_builders[operation.thread_id]
             if ref.digest not in builder["artifacts"]:
                 builder["artifacts"].append(ref.digest)
 
         if operation.type == Verb.FEATURE.value:
             for obligation in obligations_from_feature(operation):
-                if obligation.id in obligations:
+                if obligation.id in self._obligations:
                     raise ProjectionError(f"Duplicate debt obligation id: {obligation.id}")
-                obligations[obligation.id] = obligation
+                self._obligations[obligation.id] = obligation
 
         if operation.type in {Verb.TEST.value, Verb.VERIFY.value}:
-            _apply_verification(operation, obligations)
+            _apply_verification(operation, self._obligations)
 
         if operation.type == Verb.STABILIZE.value:
-            _apply_stabilize(operation, thread_builders[operation.thread_id], artifacts)
+            _apply_stabilize(operation, self._thread_builders[operation.thread_id], self._artifacts)
 
-    threads = {
-        thread_id: ThreadState(
-            thread_id=thread_id,
-            created_by=builder["created_by"],
-            forked_from=builder["forked_from"],
-            operations=tuple(builder["operations"]),
-            heads=tuple(sorted(builder["heads"])),
-            artifacts=tuple(builder["artifacts"]),
-            stabilized_artifacts=dict(sorted(builder["stabilized_artifacts"].items())),
+    def build(self) -> RuntimeState:
+        threads = {
+            thread_id: ThreadState(
+                thread_id=thread_id,
+                created_by=builder["created_by"],
+                forked_from=builder["forked_from"],
+                operations=tuple(builder["operations"]),
+                heads=tuple(sorted(builder["heads"])),
+                artifacts=tuple(builder["artifacts"]),
+                stabilized_artifacts=dict(sorted(builder["stabilized_artifacts"].items())),
+            )
+            for thread_id, builder in self._thread_builders.items()
+        }
+
+        return RuntimeState(
+            operations=dict(self._operations),
+            threads=threads,
+            artifacts=dict(self._artifacts),
+            edges=tuple(self._edges),
+            debt=DebtLedger(obligations=dict(self._obligations)),
         )
-        for thread_id, builder in thread_builders.items()
-    }
 
-    return RuntimeState(
-        operations=operation_map,
-        threads=threads,
-        artifacts=artifacts,
-        edges=tuple(edges),
-        debt=DebtLedger(obligations=obligations),
-    )
+
+def fold_operations(operations: list[Operation] | tuple[Operation, ...]) -> RuntimeState:
+    builder = StateBuilder()
+    for operation in operations:
+        builder.apply(operation)
+    return builder.build()
 
 
 def _create_thread_builder(

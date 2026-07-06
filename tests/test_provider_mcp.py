@@ -15,21 +15,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from syberruntime import FixedPolicy, Runtime, load_adapter_bundle  # noqa: E402
 from syberruntime.ai_contracts import PlannerOutput, VerifierOutput  # noqa: E402
 from syberruntime.errors import ModelContractError  # noqa: E402
-from syberruntime.provider_mcp import ProviderMCPError, _extract_json_payload, _user_prompt, call_provider  # noqa: E402
+from syberruntime.providers.errors import ProviderMCPError  # noqa: E402
+from syberruntime.providers.payload import build_user_prompt, call_provider, extract_json_payload  # noqa: E402
 
 
 class ProviderMCPTests(unittest.TestCase):
     def test_extract_json_payload_accepts_plain_and_fenced_json(self) -> None:
-        self.assertEqual(_extract_json_payload('{"ok": true}'), {"ok": True})
-        self.assertEqual(_extract_json_payload('```json\n{"ok": true}\n```'), {"ok": True})
+        self.assertEqual(extract_json_payload('{"ok": true}'), {"ok": True})
+        self.assertEqual(extract_json_payload('```json\n{"ok": true}\n```'), {"ok": True})
 
     def test_extract_json_payload_accepts_embedded_json_object(self) -> None:
-        payload = _extract_json_payload('Result follows:\n{"ok": true, "nested": {"token": "}"}}\nDone.')
+        payload = extract_json_payload('Result follows:\n{"ok": true, "nested": {"token": "}"}}\nDone.')
 
         self.assertEqual(payload, {"ok": True, "nested": {"token": "}"}})
 
     def test_provider_prompt_constrains_planner_to_runtime_grammar(self) -> None:
-        prompt = _user_prompt(
+        prompt = build_user_prompt(
             {
                 "role": "planner",
                 "operation_type": "Research",
@@ -44,8 +45,8 @@ class ProviderMCPTests(unittest.TestCase):
         self.assertIn("Do not use informal verbs", prompt)
         self.assertIn("SyberRuntime request:\n", prompt)
 
-    def test_provider_prompt_constrains_verifier_oracle_shape_for_exact_intent(self) -> None:
-        prompt = _user_prompt(
+    def test_provider_prompt_constrains_verifier_oracle_shape_without_answer_injection(self) -> None:
+        prompt = build_user_prompt(
             {
                 "role": "verifier",
                 "operation_type": "Verify",
@@ -67,11 +68,14 @@ class ProviderMCPTests(unittest.TestCase):
         self.assertIn('"kind":"sha256_equals"', prompt)
         self.assertIn("must never be empty", prompt)
         self.assertIn("alternate keys", prompt)
-        self.assertIn('"expected": "agent-live-smoke-token\\n"', prompt)
-        self.assertIn('"kind": "text_equals"', prompt)
+        # The runtime-side constraints must not restate the expected oracle for
+        # the model; the verifier has to derive it from the request itself.
+        constraints = prompt.split("SyberRuntime request:\n", 1)[0]
+        self.assertNotIn("agent-live-smoke-token", constraints)
+        self.assertNotIn("the deterministic oracle must be", constraints)
 
-    def test_provider_prompt_constrains_generator_exact_newline_artifact(self) -> None:
-        prompt = _user_prompt(
+    def test_provider_prompt_never_injects_expected_artifact_content(self) -> None:
+        prompt = build_user_prompt(
             {
                 "role": "generator",
                 "operation_type": "Feature",
@@ -87,10 +91,13 @@ class ProviderMCPTests(unittest.TestCase):
             }
         )
 
-        self.assertIn('artifact field must be exactly "agent-scale-alpha-token\\n"', prompt)
-        self.assertIn("actual newline after JSON decoding", prompt)
-        self.assertIn("Do not emit the two literal characters backslash and n", prompt)
         self.assertIn("not a filename", prompt)
+        self.assertIn("actual newline after JSON decoding", prompt)
+        # The expected content may appear only inside the raw request echo,
+        # never in the runtime-side constraint text.
+        constraints = prompt.split("SyberRuntime request:\n", 1)[0]
+        self.assertNotIn("agent-scale-alpha-token", constraints)
+        self.assertNotIn("must be exactly", constraints)
 
     def test_planner_contract_rejects_informal_verbs(self) -> None:
         with self.assertRaisesRegex(ModelContractError, "SyberRuntime operation verb"):

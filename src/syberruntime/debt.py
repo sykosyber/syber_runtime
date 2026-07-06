@@ -26,6 +26,36 @@ def feature_obligation_id(*, feature_nonce: str, artifact_digest: str, output_in
     )
 
 
+def feature_obligation_payload(
+    *,
+    obligation_id: str,
+    artifact_digest: str,
+    generative_mass: float,
+    blast_radius: float,
+    criticality: float,
+    accrual_rate: float,
+    rigor_profile: str,
+    floor_required: bool,
+) -> dict[str, Any]:
+    """Canonical per-obligation entry stored in Feature params.
+
+    This is the single writer-side counterpart of `obligations_from_feature`;
+    keep the two in sync when the obligation schema changes.
+    """
+
+    return {
+        "id": obligation_id,
+        "artifact_digest": artifact_digest,
+        "generative_mass": float(generative_mass),
+        "blast_radius": float(blast_radius),
+        "criticality": float(criticality),
+        "accrual_rate": float(accrual_rate),
+        "incurred_debt": float(generative_mass) * float(blast_radius) * float(criticality) * float(accrual_rate),
+        "rigor_profile": rigor_profile,
+        "floor_required": floor_required,
+    }
+
+
 @dataclass(frozen=True)
 class DebtObligation:
     id: str

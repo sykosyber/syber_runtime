@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from syberruntime import (  # noqa: E402
-    ConformalCalibrator,
     FixedPolicy,
     ModelContractError,
     ModelSpec,
@@ -17,6 +16,7 @@ from syberruntime import (  # noqa: E402
     ScriptedModelAdapter,
     Verb,
 )
+from syberruntime.confidence import ConformalCalibrator  # noqa: E402
 
 
 class Phase2RuntimeTests(unittest.TestCase):

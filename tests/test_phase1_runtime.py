@@ -19,9 +19,9 @@ from syberruntime import (  # noqa: E402
     StabilizationBlockedError,
     Verb,
     fold_operations,
-    merge_operation_sequences,
 )
 from syberruntime.debt import feature_obligation_id  # noqa: E402
+from syberruntime.merge import merge_operation_sequences  # noqa: E402
 from syberruntime.hashing import digest_bytes  # noqa: E402
 
 

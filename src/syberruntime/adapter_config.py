@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from syberruntime.adapters import MCPJsonAdapter, MCPStdioToolAdapter, ModelAdapter
+from syberruntime.adapters import MCPStdioToolAdapter, ModelAdapter
 from syberruntime.ai_contracts import ModelSpec
 from syberruntime.errors import AdapterError
 
@@ -78,6 +78,4 @@ def _load_mcp_adapter(data: dict[str, Any], key: str) -> ModelAdapter:
             protocol_version=protocol_version,
             static_arguments=static_arguments,
         )
-    if transport == "jsonrpc_bridge":
-        return MCPJsonAdapter(spec=spec, command=expanded_command, timeout_seconds=timeout_seconds)
     raise AdapterError(f"Adapter section {key} has unsupported transport: {transport}")

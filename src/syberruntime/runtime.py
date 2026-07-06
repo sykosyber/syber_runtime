@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from syberruntime.adapters import ModelAdapter
-from syberruntime.ai_contracts import GeneratorOutput, ModelRequest, PlannerOutput, VerifierOutput
+from syberruntime.ai_contracts import PlannerOutput, VerifierOutput
 from syberruntime.blob_store import BlobStore
 from syberruntime.confidence import ConformalCalibrator
-from syberruntime.debt import feature_obligation_id
-from syberruntime.errors import BudgetExceededError, RoutingError, StabilizationBlockedError
+from syberruntime.debt import feature_obligation_id, feature_obligation_payload
+from syberruntime.errors import BudgetExceededError, StabilizationBlockedError
 from syberruntime.export import export_prov_document, export_ro_crate
-from syberruntime.hashing import digest_bytes, digest_json, normalize_json
+from syberruntime.hashing import digest_json, normalize_json
 from syberruntime.inspector import inspect_artifact
 from syberruntime.intent import IntentMetadata, normalize_intent_metadata
 from syberruntime.merkle import ConsistencyProof, InclusionProof
@@ -20,11 +21,13 @@ from syberruntime.metrics import RuntimeMetrics, compute_runtime_metrics
 from syberruntime.models import ArtifactRef, Evaluation, EvaluationStatus, Operation, Provenance, Verb
 from syberruntime.mutation import MutationCampaignReport, TextMutationHarness
 from syberruntime.operation_log import LogEntry, OperationLog
-from syberruntime.orchestration import AIOperationResult
 from syberruntime.policy import FixedPolicy
-from syberruntime.projections import RuntimeState, fold_operations
+from syberruntime.projections import RuntimeState, StateBuilder, fold_operations
 from syberruntime.snapshots import Snapshot, SnapshotStore, make_snapshot
 from syberruntime.verification import DeterministicVerifier
+
+if TYPE_CHECKING:
+    from syberruntime.ai.orchestrator import AIOperationResult
 
 
 class Runtime:
@@ -36,6 +39,9 @@ class Runtime:
         self.verifier = DeterministicVerifier(self.blobs)
         self.mutation_harness = TextMutationHarness(self.blobs)
         self.snapshots = SnapshotStore(self.root)
+        self._state_builder = StateBuilder()
+        self._folded_count = 0
+        self._folded_tail_hash: str | None = None
 
     def create_thread(
         self,
@@ -132,13 +138,6 @@ class Runtime:
         if thread_id not in state.threads:
             raise KeyError(f"Unknown thread: {thread_id}")
 
-        payload = content.encode("utf-8") if isinstance(content, str) else content
-        artifact = ArtifactRef(
-            digest=digest_bytes(payload),
-            size=len(payload),
-            media_type=media_type,
-            name=artifact_name,
-        )
         profile = self.policy.profile_for(center_id)
         incurred_debt = float(generative_mass) * float(blast_radius) * float(criticality) * profile.accrual_rate
         self._enforce_budget(
@@ -146,6 +145,11 @@ class Runtime:
             center_id=center_id,
             added_debt=incurred_debt,
         )
+
+        if isinstance(content, str):
+            artifact = self.blobs.put_text(content, media_type=media_type, name=artifact_name)
+        else:
+            artifact = self.blobs.put_bytes(content, media_type=media_type, name=artifact_name)
 
         operation_nonce = nonce or uuid4().hex
         obligation_id = feature_obligation_id(
@@ -161,23 +165,18 @@ class Runtime:
             "rigor_profile": profile.name,
             "floor_required": profile.floor_required,
             "obligations": [
-                {
-                    "id": obligation_id,
-                    "artifact_digest": artifact.digest,
-                    "generative_mass": float(generative_mass),
-                    "blast_radius": float(blast_radius),
-                    "criticality": float(criticality),
-                    "accrual_rate": profile.accrual_rate,
-                    "incurred_debt": incurred_debt,
-                    "rigor_profile": profile.name,
-                    "floor_required": profile.floor_required,
-                }
+                feature_obligation_payload(
+                    obligation_id=obligation_id,
+                    artifact_digest=artifact.digest,
+                    generative_mass=generative_mass,
+                    blast_radius=blast_radius,
+                    criticality=criticality,
+                    accrual_rate=profile.accrual_rate,
+                    rigor_profile=profile.name,
+                    floor_required=profile.floor_required,
+                )
             ],
         }
-        if isinstance(content, str):
-            artifact = self.blobs.put_text(content, media_type=media_type, name=artifact_name)
-        else:
-            artifact = self.blobs.put_bytes(content, media_type=media_type, name=artifact_name)
 
         operation = Operation.build(
             type=Verb.FEATURE,
@@ -485,7 +484,27 @@ class Runtime:
         return self.log.append(operation)
 
     def rebuild_state(self) -> RuntimeState:
-        return fold_operations(self.log.operations(validate=True))
+        entries = self.log.entries(validate=True)
+        stale = self._folded_count > len(entries) or (
+            self._folded_count > 0 and entries[self._folded_count - 1].entry_hash != self._folded_tail_hash
+        )
+        if stale:
+            self._reset_state_cache()
+        try:
+            for entry in entries[self._folded_count :]:
+                self._state_builder.apply(entry.operation)
+        except Exception:
+            # A partial fold would poison the cache; rebuild from scratch next time.
+            self._reset_state_cache()
+            raise
+        self._folded_count = len(entries)
+        self._folded_tail_hash = entries[-1].entry_hash if entries else None
+        return self._state_builder.build()
+
+    def _reset_state_cache(self) -> None:
+        self._state_builder = StateBuilder()
+        self._folded_count = 0
+        self._folded_tail_hash = None
 
     def operation_graph(self) -> dict:
         return self.rebuild_state().operation_graph()
@@ -542,132 +561,21 @@ class Runtime:
         center_id: str = "root",
         confidence_calibrator: ConformalCalibrator | None = None,
         intent_metadata: IntentMetadata | dict | None = None,
-    ) -> AIOperationResult:
-        self._validate_routing(planner=planner, generator=generator, verifier=verifier)
-        if thread_id is None:
-            thread_entry = self.create_thread(
-                intent=intent,
-                center_id=center_id,
-                intent_metadata=intent_metadata,
-            )
-            thread_id = thread_entry.operation.thread_id
-        elif thread_id not in self.rebuild_state().threads:
-            raise KeyError(f"Unknown thread: {thread_id}")
+    ) -> "AIOperationResult":
+        """Compatibility shim; the loop lives in syberruntime.ai.orchestrator."""
+        from syberruntime.ai.orchestrator import run_ai_loop
 
-        profile = self.policy.profile_for(center_id)
-        planner_response = planner.call(
-            ModelRequest(
-                role="planner",
-                operation_type=Verb.RESEARCH.value,
-                system=_runtime_constitution(),
-                payload={"intent": intent, "center_rigor_profile": profile.name},
-            )
-        )
-        plan = PlannerOutput.from_payload(planner_response.payload)
-        plan_entry = self.record_plan(
-            thread_id,
+        return run_ai_loop(
+            self,
             intent=intent,
-            plan=plan,
-            actor=planner.spec.model_id,
-            center_id=center_id,
-            model_assignment=planner.spec.to_dict(),
-            intent_metadata=intent_metadata,
-        )
-
-        generator_response = generator.call(
-            ModelRequest(
-                role="generator",
-                operation_type=Verb.FEATURE.value,
-                system=_generator_system(),
-                payload={
-                    "intent": intent,
-                    "artifact_name": artifact_name,
-                    "center_rigor_profile": profile.name,
-                    "plan": plan.to_dict(),
-                },
-            )
-        )
-        generated = GeneratorOutput.from_payload(generator_response.payload)
-        feature_entry = self.record_feature(
-            thread_id,
             artifact_name=artifact_name,
-            content=generated.artifact,
-            intent=intent,
+            planner=planner,
+            generator=generator,
+            verifier=verifier,
+            thread_id=thread_id,
             center_id=center_id,
-            actor=generator.spec.model_id,
-            assumptions=tuple(assumption.to_dict() for assumption in generated.assumptions),
-            self_identified_risks=generated.self_identified_risks,
-            generation_plan=generated.plan,
-            model_assignment=generator.spec.to_dict(),
+            confidence_calibrator=confidence_calibrator,
             intent_metadata=intent_metadata,
-        )
-        artifact_digest = feature_entry.operation.outputs[0].digest
-
-        verifier_response = verifier.call(
-            ModelRequest(
-                role="verifier",
-                operation_type=Verb.VERIFY.value,
-                system=_verifier_system(),
-                payload={
-                    "intent": intent,
-                    "artifact_digest": artifact_digest,
-                    "artifact": generated.artifact,
-                    "assumption_ledger": [assumption.to_dict() for assumption in generated.assumptions],
-                    "self_identified_risks": list(generated.self_identified_risks),
-                    "center_rigor_profile": profile.name,
-                },
-            )
-        )
-        verified = VerifierOutput.from_payload(verifier_response.payload)
-
-        if verified.checkable_oracle is not None:
-            verification_entry = self.record_test(
-                thread_id,
-                artifact_digest=artifact_digest,
-                check=verified.checkable_oracle,
-                actor=verifier.spec.model_id,
-                center_id=center_id,
-                intent="Run verifier-specified deterministic oracle.",
-                intent_metadata=intent_metadata,
-            )
-        else:
-            verification_entry = self.record_verify(
-                thread_id,
-                artifact_digest=artifact_digest,
-                verifier_output=verified,
-                actor=verifier.spec.model_id,
-                center_id=center_id,
-                model_assignment=verifier.spec.to_dict(),
-                intent_metadata=intent_metadata,
-            )
-
-        confidence = None
-        if confidence_calibrator is not None:
-            candidate_scores = _candidate_scores(verified)
-            confidence = confidence_calibrator.prediction_set(candidate_scores).to_dict()
-
-        stabilize_entry = None
-        state = self.rebuild_state()
-        if not state.debt.open_floor_obligations_for_artifact(artifact_digest):
-            stabilize_entry = self.stabilize(
-                thread_id,
-                artifact_digest=artifact_digest,
-                actor="runtime",
-                center_id=center_id,
-                intent="Stabilize after successful Phase 2 verification loop.",
-                intent_metadata=intent_metadata,
-            )
-
-        return AIOperationResult(
-            plan=plan,
-            generator_output=generated,
-            verifier_output=verified,
-            plan_entry=plan_entry,
-            feature_entry=feature_entry,
-            verification_entry=verification_entry,
-            stabilize_entry=stabilize_entry,
-            artifact_digest=artifact_digest,
-            confidence=confidence,
         )
 
     def _enforce_budget(self, *, state: RuntimeState, center_id: str, added_debt: float) -> None:
@@ -678,55 +586,6 @@ class Runtime:
                 f"Debt budget exceeded for center {center_id}: "
                 f"current={current}, added={added_debt}, limit={limit}"
             )
-
-    def _validate_routing(
-        self,
-        *,
-        planner: ModelAdapter,
-        generator: ModelAdapter,
-        verifier: ModelAdapter,
-    ) -> None:
-        if not planner.spec.supports("planner"):
-            raise RoutingError(f"Planner model {planner.spec.model_id} does not support planner role")
-        if not generator.spec.supports("generator"):
-            raise RoutingError(f"Generator model {generator.spec.model_id} does not support generator role")
-        if not verifier.spec.supports("verifier"):
-            raise RoutingError(f"Verifier model {verifier.spec.model_id} does not support verifier role")
-        if generator.spec.family == verifier.spec.family:
-            raise RoutingError(
-                "Generator and verifier must be from different model families for error decorrelation"
-            )
-
-
-def _runtime_constitution() -> str:
-    return (
-        "Work proceeds as typed SyberRuntime operations. Every generative operation incurs "
-        "a paired evaluation obligation. Assumptions must be surfaced before artifact creation; "
-        "human understanding is the protected resource."
-    )
-
-
-def _generator_system() -> str:
-    return (
-        "You are performing a Feature operation. Return strict JSON with assumptions, plan, "
-        "artifact, and self_identified_risks. State assumptions before artifact content."
-    )
-
-
-def _verifier_system() -> str:
-    return (
-        "You are performing a Verify operation. Prefer a deterministic checkable oracle. "
-        "If no oracle exists, return pass, fail, or uncertain with located errors."
-    )
-
-
-def _candidate_scores(verified: VerifierOutput) -> dict[str, float]:
-    if verified.verdict == "pass":
-        return {"pass": 0.0, "fail": 1.0, "uncertain": 0.75}
-    if verified.verdict == "fail":
-        return {"pass": 1.0, "fail": 0.0, "uncertain": 0.75}
-    return {"pass": 0.75, "fail": 0.75, "uncertain": 0.0}
-
 
 def _decision(kind: str, *, intent_metadata: dict, **values: object) -> dict:
     decision = {"kind": kind, **values}

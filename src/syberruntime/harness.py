@@ -7,17 +7,17 @@ machine-readable report for dogfooding and benchmark work.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from syberruntime.adapter_config import load_adapter_bundle
 from syberruntime.errors import SyberRuntimeError
-from syberruntime.hashing import canonical_json, digest_json
+from syberruntime.hashing import digest_json
 from syberruntime.intent import IntentMetadata
 from syberruntime.model_capability import model_capability_envelope
 from syberruntime.policy import FixedPolicy
+from syberruntime.reports import discover_json_reports, read_json_report, write_json_report
 from syberruntime.runtime import Runtime
 
 
@@ -348,21 +348,15 @@ def run_live_agent_harness(
 
 
 def write_harness_report(report: HarnessReport, output_path: str | Path) -> Path:
-    path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonical_json(report.to_dict()), encoding="utf-8")
-    return path
+    return write_json_report(report.to_dict(), output_path)
 
 
 def discover_harness_reports(directory: str | Path) -> tuple[Path, ...]:
-    path = Path(directory)
-    if not path.exists():
-        return ()
-    return tuple(sorted(item for item in path.glob("*.json") if item.is_file()))
+    return discover_json_reports(directory)
 
 
 def load_harness_report(path: str | Path) -> dict[str, Any]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = read_json_report(path)
     validate_harness_report(data)
     return data
 
@@ -543,13 +537,13 @@ def _run_task(runtime: Runtime, task: HarnessTask, metadata: IntentMetadata) -> 
                 intent_metadata=metadata,
             )
             mutation_report = report.to_dict()
-        stabilize = runtime.stabilize(
+        runtime.stabilize(
             thread_id,
             artifact_digest=artifact_digest,
             actor=metadata.principal,
             intent_metadata=metadata,
         )
-        stabilized = stabilize.operation is not None
+        stabilized = True
         status = "pass" if stabilized == task.expect_stabilized else "fail"
         return HarnessTaskResult(
             task_id=task.task_id,

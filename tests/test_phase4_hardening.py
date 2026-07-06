@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from syberruntime import ConsistencyProof, FixedPolicy, InclusionProof, Runtime  # noqa: E402
+from syberruntime import FixedPolicy, Runtime  # noqa: E402
+from syberruntime.merkle import ConsistencyProof, InclusionProof  # noqa: E402
 
 
 class Phase4HardeningTests(unittest.TestCase):

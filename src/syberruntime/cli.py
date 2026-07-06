@@ -17,6 +17,7 @@ from syberruntime.harness import (
     write_harness_report,
 )
 from syberruntime.hashing import canonical_json
+from syberruntime.reports import write_json_report
 from syberruntime.runtime import Runtime
 from syberruntime.scale_analysis import analyze_scale3_reports, write_scale3_analysis_markdown
 
@@ -286,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
             agent_harness_report_dir=args.agent_harness_report_dir,
         )
         if args.output is not None:
-            _write_json(args.output, report.to_dict())
+            write_json_report(report.to_dict(), args.output)
         _print_json(report.to_dict())
     elif args.command == "replay-check":
         _print_json({"deterministic": runtime.replay_is_deterministic()})
@@ -297,11 +298,6 @@ def main(argv: list[str] | None = None) -> int:
 
 def _print_json(value: dict) -> None:
     print(json.dumps(json.loads(canonical_json(value)), indent=2, sort_keys=True))
-
-
-def _write_json(path: Path, value: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonical_json(value), encoding="utf-8")
 
 
 def _check_from_args(args: argparse.Namespace) -> dict:

@@ -5,10 +5,51 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Python = "C:\Users\MATEO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 
-if (-not (Test-Path -LiteralPath $Python)) {
-    throw "Bundled Python not found: $Python"
+function Resolve-PythonExecutable {
+    param(
+        [string]$Candidate
+    )
+    if (-not $Candidate) {
+        return $null
+    }
+    try {
+        $resolved = (& $Candidate -c "import sys; print(sys.executable)" 2>$null)
+        if ($LASTEXITCODE -ne 0 -or -not $resolved) {
+            return $null
+        }
+        return ($resolved | Select-Object -Last 1).Trim()
+    }
+    catch {
+        return $null
+    }
+}
+
+# Resolve Python: explicit override, then PATH, then the py launcher.
+$Python = Resolve-PythonExecutable $env:SYBERRUNTIME_PYTHON
+if ($env:SYBERRUNTIME_PYTHON -and -not $Python) {
+    throw "SYBERRUNTIME_PYTHON does not point to a runnable Python interpreter."
+}
+if (-not $Python) {
+    $candidate = Get-Command python -ErrorAction SilentlyContinue
+    if ($candidate) { $Python = Resolve-PythonExecutable $candidate.Source }
+}
+if (-not $Python) {
+    $launcher = Get-Command py -ErrorAction SilentlyContinue
+    if ($launcher) {
+        try {
+            $resolved = (& $launcher.Source -3 -c "import sys; print(sys.executable)" 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $resolved) {
+                $Python = ($resolved | Select-Object -Last 1).Trim()
+            }
+        }
+        catch {
+            $Python = $null
+        }
+    }
+}
+if (-not $Python -or -not (Test-Path -LiteralPath $Python)) {
+    throw "No Python interpreter found. Set SYBERRUNTIME_PYTHON or put python on PATH."
 }
 
 $env:PYTHONPATH = Join-Path $RepoRoot "src"

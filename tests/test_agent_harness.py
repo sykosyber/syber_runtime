@@ -14,10 +14,6 @@ from syberruntime import (  # noqa: E402
     ModelSpec,
     Runtime,
     ScriptedModelAdapter,
-    run_live_agent_harness,
-    run_scripted_agent_harness,
-    validate_harness_report,
-    write_harness_report,
 )
 from syberruntime.harness import (  # noqa: E402
     LIVE_SMOKE_ARTIFACT_CONTENT,
@@ -26,6 +22,10 @@ from syberruntime.harness import (  # noqa: E402
     _run_live_task,
     default_live_scale_tasks,
     live_smoke_task,
+    run_live_agent_harness,
+    run_scripted_agent_harness,
+    validate_harness_report,
+    write_harness_report,
 )
 
 

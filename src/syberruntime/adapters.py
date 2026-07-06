@@ -46,66 +46,6 @@ class ScriptedModelAdapter:
         return ModelResponse(model=self.spec, payload=normalize_json(payload))
 
 
-class MCPJsonAdapter:
-    """Legacy one-shot JSON-RPC bridge retained for compatibility tests.
-
-    Production configs should use MCPStdioToolAdapter. This older adapter sends
-    one non-MCP JSON-RPC request on stdin and expects a direct `result` payload.
-    """
-
-    def __init__(self, *, spec: ModelSpec, command: tuple[str, ...], timeout_seconds: float = 60.0) -> None:
-        self._spec = spec
-        self.command = command
-        self.timeout_seconds = timeout_seconds
-
-    @property
-    def spec(self) -> ModelSpec:
-        return self._spec
-
-    def call(self, request: ModelRequest) -> ModelResponse:
-        if not self.spec.supports(request.role):
-            raise AdapterError(f"Model {self.spec.model_id} does not support role {request.role}")
-        rpc = {
-            "jsonrpc": "2.0",
-            "id": request.role,
-            "method": "syberruntime.model_call",
-            "params": {
-                "model": self.spec.to_dict(),
-                "request": request.to_dict(),
-            },
-        }
-        try:
-            completed = subprocess.run(
-                self.command,
-                input=canonical_json(rpc),
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_seconds,
-                check=False,
-            )
-        except OSError as exc:
-            raise AdapterError(f"Could not start adapter command {self.command!r}: {exc}") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise AdapterError(f"Adapter command timed out: {self.command!r}") from exc
-
-        if completed.returncode != 0:
-            raise AdapterError(
-                f"Adapter command failed with exit code {completed.returncode}: {completed.stderr.strip()}"
-            )
-        try:
-            response = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
-            raise AdapterError("Adapter returned invalid JSON") from exc
-        if "error" in response:
-            raise AdapterError(f"Adapter returned JSON-RPC error: {response['error']}")
-        if "result" not in response:
-            raise AdapterError("Adapter response missing result")
-        result = normalize_json(response["result"])
-        if not isinstance(result, dict):
-            raise AdapterError("Adapter result must be a JSON object")
-        return ModelResponse(model=self.spec, payload=result)
-
-
 class MCPStdioToolAdapter:
     """MCP stdio client that invokes a configured tool for model calls.
 

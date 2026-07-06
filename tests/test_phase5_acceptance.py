@@ -10,8 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from syberruntime.acceptance import run_v1_acceptance_audit  # noqa: E402
 from syberruntime.cli import main  # noqa: E402
-from syberruntime import run_v1_acceptance_audit  # noqa: E402
 
 
 class Phase5AcceptanceTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class Phase5AcceptanceTests(unittest.TestCase):
             {"pass", "warn"},
         )
         self.assertEqual(criterion_by_id["live_scale3_campaign"].status, "pass")
-        self.assertIn("agentic-live-scale3-003", criterion_by_id["live_scale3_campaign"].evidence)
+        self.assertIn("agentic-live-scale3-004", criterion_by_id["live_scale3_campaign"].evidence)
         self.assertGreaterEqual(len(report.criteria), 15)
 
     def test_acceptance_report_is_json_serializable(self) -> None:
