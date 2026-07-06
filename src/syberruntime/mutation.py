@@ -1,7 +1,20 @@
-"""Mutation testing harness for measured discharge efficiency."""
+"""Mutation testing harness for measured discharge efficiency.
+
+Two operator families:
+
+- Text operators (remove expected text, append noise, replace first token,
+  drop first line) for content-checked artifacts.
+- AST operators (arithmetic/comparison/boolean swaps, constant perturbation)
+  for Python artifacts verified by `python_tests` checks. AST mutants are
+  syntactically valid by construction, so a kill means the test suite caught
+  a behavior change — not that the file stopped parsing. Dogfood run 002
+  showed text operators under-approximate code mutation (a docstring token
+  swap survived); this family closes that gap.
+"""
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -130,13 +143,48 @@ class TextMutationHarness:
         )
 
 
+MAX_AST_MUTANTS = 16
+
+_BINOP_SWAPS: dict[type, type] = {
+    ast.Add: ast.Sub,
+    ast.Sub: ast.Add,
+    ast.Mult: ast.Div,
+    ast.Div: ast.Mult,
+    ast.FloorDiv: ast.Mult,
+    ast.Mod: ast.Add,
+}
+
+_COMPARE_SWAPS: dict[type, type] = {
+    ast.Eq: ast.NotEq,
+    ast.NotEq: ast.Eq,
+    ast.Lt: ast.GtE,
+    ast.LtE: ast.Gt,
+    ast.Gt: ast.LtE,
+    ast.GtE: ast.Lt,
+    ast.In: ast.NotIn,
+    ast.NotIn: ast.In,
+    ast.Is: ast.IsNot,
+    ast.IsNot: ast.Is,
+}
+
+
 def _unique_mutants(original: str, check: dict[str, Any]) -> tuple[Mutant, ...]:
-    candidates = [
-        _remove_expected(original, check),
-        _append_noise(original),
-        _replace_first_word(original),
-        _drop_first_line(original),
-    ]
+    if str(check.get("kind", "")) == "python_tests":
+        ast_mutants = _python_ast_mutants(original)
+        if ast_mutants:
+            return _dedupe(original, ast_mutants)
+    return _dedupe(
+        original,
+        [
+            _remove_expected(original, check),
+            _append_noise(original),
+            _replace_first_word(original),
+            _drop_first_line(original),
+        ],
+    )
+
+
+def _dedupe(original: str, candidates: list[Mutant | None] | tuple[Mutant, ...]) -> tuple[Mutant, ...]:
     seen = {original}
     mutants: list[Mutant] = []
     for candidate in candidates:
@@ -145,6 +193,74 @@ def _unique_mutants(original: str, check: dict[str, Any]) -> tuple[Mutant, ...]:
         seen.add(candidate.content)
         mutants.append(candidate)
     return tuple(mutants)
+
+
+def _python_ast_mutants(original: str, *, limit: int = MAX_AST_MUTANTS) -> tuple[Mutant, ...] | None:
+    """Semantic mutants for Python artifacts; None when the source doesn't parse.
+
+    Each mutant applies exactly one transformation at one site, chosen in
+    deterministic AST walk order and capped so campaign cost stays bounded.
+    Strings (docstrings) and None are never mutated: those produce the
+    semantically equivalent mutants the text operators suffered from.
+    """
+
+    try:
+        tree = ast.parse(original)
+    except SyntaxError:
+        return None
+
+    site_indices = [
+        index for index, node in enumerate(ast.walk(tree)) if _ast_mutation_label(node) is not None
+    ]
+    mutants: list[Mutant] = []
+    for site_index in site_indices[:limit]:
+        clone = ast.parse(original)
+        node = list(ast.walk(clone))[site_index]
+        label = _ast_mutation_label(node)
+        if label is None or not _apply_ast_mutation(node):
+            continue
+        try:
+            content = ast.unparse(clone) + "\n"
+        except (ValueError, RecursionError):  # pragma: no cover - unparse edge cases
+            continue
+        line = getattr(node, "lineno", 0)
+        mutants.append(Mutant(operator=f"ast_{label}_line{line}", content=content))
+    return tuple(mutants)
+
+
+def _ast_mutation_label(node: ast.AST) -> str | None:
+    if isinstance(node, ast.BinOp) and type(node.op) in _BINOP_SWAPS:
+        return f"binop_{type(node.op).__name__.lower()}_swap"
+    if isinstance(node, ast.Compare) and node.ops and type(node.ops[0]) in _COMPARE_SWAPS:
+        return f"compare_{type(node.ops[0]).__name__.lower()}_swap"
+    if isinstance(node, ast.BoolOp):
+        return f"boolop_{type(node.op).__name__.lower()}_swap"
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool):
+            return "const_bool_flip"
+        if isinstance(node.value, (int, float)):
+            return "const_number_increment"
+    return None
+
+
+def _apply_ast_mutation(node: ast.AST) -> bool:
+    if isinstance(node, ast.BinOp):
+        node.op = _BINOP_SWAPS[type(node.op)]()
+        return True
+    if isinstance(node, ast.Compare):
+        node.ops[0] = _COMPARE_SWAPS[type(node.ops[0])]()
+        return True
+    if isinstance(node, ast.BoolOp):
+        node.op = ast.Or() if isinstance(node.op, ast.And) else ast.And()
+        return True
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool):
+            node.value = not node.value
+            return True
+        if isinstance(node.value, (int, float)):
+            node.value = node.value + 1
+            return True
+    return False
 
 
 def _remove_expected(original: str, check: dict[str, Any]) -> Mutant | None:
