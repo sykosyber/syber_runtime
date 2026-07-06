@@ -12,7 +12,7 @@
     "arguments": {
       "provider": "google",
       "api_key_env": "GOOGLE_API_KEY",
-      "max_tokens": 2048,
+      "max_tokens": 8192,
       "temperature": 0
     },
     "timeout_seconds": 60
@@ -30,7 +30,7 @@
     "arguments": {
       "provider": "google",
       "api_key_env": "GOOGLE_API_KEY",
-      "max_tokens": 2048,
+      "max_tokens": 8192,
       "temperature": 0
     },
     "timeout_seconds": 60
@@ -48,7 +48,7 @@
     "arguments": {
       "provider": "deepseek",
       "api_key_env": "DEEPSEEK_API_KEY",
-      "max_tokens": 2048,
+      "max_tokens": 8192,
       "temperature": 0
     },
     "timeout_seconds": 60
