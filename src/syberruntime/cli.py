@@ -53,6 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     check_group.add_argument("--text-contains")
     check_group.add_argument("--text-equals")
     check_group.add_argument("--sha256-equals")
+    check_group.add_argument("--python-tests-file", type=Path)
+    test_parser.add_argument("--artifact-filename", default="artifact_under_test.py")
+    test_parser.add_argument("--oracle-pythonpath", action="append", default=[])
 
     stabilize_parser = subparsers.add_parser("stabilize")
     stabilize_parser.add_argument("thread_id")
@@ -66,6 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     mutation_check_group.add_argument("--text-contains")
     mutation_check_group.add_argument("--text-equals")
     mutation_check_group.add_argument("--sha256-equals")
+    mutation_check_group.add_argument("--python-tests-file", type=Path)
+    mutation_parser.add_argument("--artifact-filename", default="artifact_under_test.py")
+    mutation_parser.add_argument("--oracle-pythonpath", action="append", default=[])
 
     ai_loop_parser = subparsers.add_parser("ai-loop")
     ai_loop_parser.add_argument("--config", required=True, type=Path)
@@ -307,6 +313,15 @@ def _check_from_args(args: argparse.Namespace) -> dict:
         return {"kind": "text_equals", "expected": args.text_equals}
     if args.sha256_equals is not None:
         return {"kind": "sha256_equals", "expected": args.sha256_equals}
+    if args.python_tests_file is not None:
+        check = {
+            "kind": "python_tests",
+            "test_source": args.python_tests_file.read_text(encoding="utf-8"),
+            "artifact_filename": args.artifact_filename,
+        }
+        if args.oracle_pythonpath:
+            check["pythonpath"] = [str(item) for item in args.oracle_pythonpath]
+        return check
     raise ValueError("No deterministic check supplied")
 
 

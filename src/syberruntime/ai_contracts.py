@@ -12,7 +12,7 @@ from typing import Any
 from syberruntime.errors import ModelContractError
 from syberruntime.hashing import normalize_json
 from syberruntime.models import Verb
-from syberruntime.verification import SUPPORTED_DETERMINISTIC_CHECK_KINDS
+from syberruntime.verification import MODEL_ORACLE_CHECK_KINDS
 
 
 PLANNER_OPERATION_VERBS = frozenset(
@@ -233,8 +233,11 @@ class VerifierOutput:
             if not isinstance(checkable_oracle, dict):
                 raise ModelContractError("verifier checkable_oracle must be null or an object")
             kind = str(checkable_oracle.get("kind", ""))
-            if kind not in SUPPORTED_DETERMINISTIC_CHECK_KINDS:
-                allowed = ", ".join(sorted(SUPPORTED_DETERMINISTIC_CHECK_KINDS))
+            # Model-supplied oracles are restricted to content checks; kinds
+            # that execute code (python_tests) are runtime/harness-only so a
+            # model response can never trigger local code execution.
+            if kind not in MODEL_ORACLE_CHECK_KINDS:
+                allowed = ", ".join(sorted(MODEL_ORACLE_CHECK_KINDS))
                 raise ModelContractError(
                     f"verifier checkable_oracle kind must be a supported deterministic check ({allowed}); "
                     f"found {kind!r}"
