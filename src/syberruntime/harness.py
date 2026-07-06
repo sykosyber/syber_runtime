@@ -48,6 +48,32 @@ class LiveHarnessTask:
 
 
 @dataclass(frozen=True)
+class LiveCodeTask:
+    """A hard live task: the generator writes code, the harness holds the oracle.
+
+    The `check` (a python_tests suite) never reaches the model in constraint
+    form and is the sole discharge authority; the model verifier's review is
+    recorded as partial evidence only. The generator cannot pass by echoing
+    the intent — only by producing behaviorally correct code.
+    """
+
+    task_id: str
+    intent: str
+    artifact_name: str
+    check: dict[str, Any]
+    run_mutation_campaign: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "intent": self.intent,
+            "artifact_name": self.artifact_name,
+            "check": self.check,
+            "run_mutation_campaign": self.run_mutation_campaign,
+        }
+
+
+@dataclass(frozen=True)
 class HarnessTask:
     task_id: str
     intent: str
@@ -212,6 +238,64 @@ def _exact_live_task(*, task_id: str, artifact_name: str, expected_content: str)
     )
 
 
+MERGE_INTERVALS_INTENT = (
+    "Write a complete Python module that defines a function merge_intervals(intervals). "
+    "The argument is a list of [start, end] pairs of integers, in arbitrary order, where start <= end. "
+    "Return a new list of [start, end] lists (not tuples) in which all overlapping intervals are merged, "
+    "intervals that merely touch (one ends where the next starts, e.g. [1, 2] and [2, 3]) are also merged, "
+    "and the result is sorted by start. Do not mutate the input list. The module will be imported and its "
+    "behavior tested by a held-out deterministic unittest suite; the artifact must be the module source only."
+)
+
+MERGE_INTERVALS_TEST_SOURCE = """
+import unittest
+
+from artifact_under_test import merge_intervals
+
+
+class MergeIntervalsTests(unittest.TestCase):
+    def test_empty_input(self):
+        self.assertEqual(merge_intervals([]), [])
+
+    def test_single_interval(self):
+        self.assertEqual(merge_intervals([[1, 3]]), [[1, 3]])
+
+    def test_overlapping_unsorted_input(self):
+        self.assertEqual(merge_intervals([[8, 10], [1, 3], [2, 6]]), [[1, 6], [8, 10]])
+
+    def test_touching_intervals_merge(self):
+        self.assertEqual(merge_intervals([[1, 2], [2, 3]]), [[1, 3]])
+
+    def test_contained_intervals_collapse(self):
+        self.assertEqual(merge_intervals([[1, 10], [2, 3], [4, 5]]), [[1, 10]])
+
+    def test_disjoint_intervals_sorted_output(self):
+        self.assertEqual(merge_intervals([[5, 6], [1, 2]]), [[1, 2], [5, 6]])
+
+    def test_input_is_not_mutated(self):
+        intervals = [[8, 10], [1, 3], [2, 6]]
+        snapshot = [list(pair) for pair in intervals]
+        merge_intervals(intervals)
+        self.assertEqual(intervals, snapshot)
+"""
+
+
+def default_live_code_tasks() -> tuple[LiveCodeTask, ...]:
+    return (
+        LiveCodeTask(
+            task_id="live-code-merge-intervals-001",
+            intent=MERGE_INTERVALS_INTENT,
+            artifact_name="merge_intervals.py",
+            check={
+                "kind": "python_tests",
+                "test_source": MERGE_INTERVALS_TEST_SOURCE,
+                "artifact_filename": "artifact_under_test.py",
+                "timeout_seconds": 120,
+            },
+        ),
+    )
+
+
 def run_scripted_agent_harness(
     *,
     runtime_root: str | Path,
@@ -275,7 +359,7 @@ def run_live_agent_harness(
     intent: str = LIVE_SMOKE_INTENT,
     artifact_name: str = LIVE_SMOKE_ARTIFACT_NAME,
     run_mutation_campaign: bool = True,
-    tasks: tuple[LiveHarnessTask, ...] | None = None,
+    tasks: tuple[LiveHarnessTask | LiveCodeTask, ...] | None = None,
     model_constraints: tuple[str, ...] | list[str] | None = None,
     preferred_unavailable_models: tuple[str, ...] | list[str] | None = None,
     model_envelope_notes: str | None = None,
@@ -400,13 +484,14 @@ def _run_live_task(
     runtime: Runtime,
     metadata: IntentMetadata,
     config_path: str | Path,
-    task: LiveHarnessTask,
+    task: LiveHarnessTask | LiveCodeTask,
     planner: Any,
     generator: Any,
     verifier: Any,
 ) -> HarnessTaskResult:
     thread_id = None
     artifact_digest = None
+    deterministic_check = task.check if isinstance(task, LiveCodeTask) else None
     try:
         thread = runtime.create_thread(intent=task.intent, actor=metadata.principal, intent_metadata=metadata)
         thread_id = thread.operation.thread_id
@@ -418,14 +503,18 @@ def _run_live_task(
             verifier=verifier,
             thread_id=thread_id,
             intent_metadata=metadata,
+            deterministic_check=deterministic_check,
         )
         artifact_digest = result.artifact_digest
         mutation_report = None
-        if task.run_mutation_campaign and result.stabilized and result.verifier_output.checkable_oracle is not None:
+        mutation_check = (
+            deterministic_check if deterministic_check is not None else result.verifier_output.checkable_oracle
+        )
+        if task.run_mutation_campaign and result.stabilized and mutation_check is not None:
             _entry, report = runtime.run_mutation_campaign(
                 result.feature_entry.operation.thread_id,
                 artifact_digest=result.artifact_digest,
-                check=result.verifier_output.checkable_oracle,
+                check=mutation_check,
                 actor=metadata.principal,
                 intent_metadata=metadata,
             )

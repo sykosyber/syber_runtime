@@ -136,6 +136,34 @@ diagnostics under `failure_details`.
 `agentic_intent_harness_live_smoke` and the stricter three-task campaign as
 `live_scale3_campaign`.
 
+## Code-Task Benchmark `code1` (declared 2026-07-05, before the first live run)
+
+The smoke and scale3 tasks are echo tasks: their oracle is derivable from the
+intent, so they measure plumbing and instruction-following. `code1` is the
+first hard task class:
+
+- The generator model receives only the behavioral contract
+  (`MERGE_INTERVALS_INTENT` in `syberruntime/harness.py`): implement
+  `merge_intervals(intervals)` merging overlapping and touching integer
+  intervals, returning new sorted `[start, end]` lists without mutating the
+  input.
+- The harness holds the deterministic oracle (`MERGE_INTERVALS_TEST_SOURCE`):
+  a seven-case `python_tests` unittest suite covering empty input, single
+  interval, unsorted overlaps, touching intervals, contained intervals,
+  disjoint ordering, and input non-mutation. The suite is never included in
+  any model prompt in constraint form and is the sole discharge authority.
+- The provider verifier still reviews the artifact cross-family, but its
+  output is recorded as a partial Verify operation only; its
+  `checkable_oracle` is never executed for discharge on code tasks.
+- The mutation campaign uses AST operators (arithmetic/comparison/boolean
+  swaps, constant perturbation), so mutants are syntactically valid and kills
+  are behavioral. Survived mutants are reported, not excluded.
+
+Task set name: `--task-set code1`; run ids should contain `code`. Pass means
+the generated module survived the held-out suite and Stabilize was permitted;
+fail (including a behaviorally wrong module that the model verifier praised)
+is preserved as first-class evidence.
+
 ## Risk Boundary
 
 Agentic intent can expose weaknesses faster than manual use, but it also risks

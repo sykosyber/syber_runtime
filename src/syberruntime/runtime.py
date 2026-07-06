@@ -561,6 +561,7 @@ class Runtime:
         center_id: str = "root",
         confidence_calibrator: ConformalCalibrator | None = None,
         intent_metadata: IntentMetadata | dict | None = None,
+        deterministic_check: dict | None = None,
     ) -> "AIOperationResult":
         """Compatibility shim; the loop lives in syberruntime.ai.orchestrator."""
         from syberruntime.ai.orchestrator import run_ai_loop
@@ -576,6 +577,7 @@ class Runtime:
             center_id=center_id,
             confidence_calibrator=confidence_calibrator,
             intent_metadata=intent_metadata,
+            deterministic_check=deterministic_check,
         )
 
     def _enforce_budget(self, *, state: RuntimeState, center_id: str, added_debt: float) -> None:

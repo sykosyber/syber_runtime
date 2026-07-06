@@ -11,6 +11,7 @@ from syberruntime.acceptance import run_v1_acceptance_audit
 from syberruntime.adapter_config import load_adapter_bundle
 from syberruntime.dogfood import create_dogfood_report, write_dogfood_report
 from syberruntime.harness import (
+    default_live_code_tasks,
     default_live_scale_tasks,
     run_live_agent_harness,
     run_scripted_agent_harness,
@@ -121,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     harness_parser.add_argument("--principal", default="agent-harness-v0")
     harness_parser.add_argument("--benchmark-id", default="agentic-intent-harness-v0")
     harness_parser.add_argument("--acceptance-authority", default="deterministic-oracle")
-    harness_parser.add_argument("--task-set", choices=("smoke", "scale3"), default="smoke")
+    harness_parser.add_argument("--task-set", choices=("smoke", "scale3", "code1"), default="smoke")
     harness_parser.add_argument("--model-constraint", action="append", default=[])
     harness_parser.add_argument("--preferred-unavailable-model", action="append", default=[])
     harness_parser.add_argument("--model-envelope-notes", default="")
@@ -250,11 +251,20 @@ def main(argv: list[str] | None = None) -> int:
                 if args.benchmark_id == "agentic-intent-harness-v0"
                 else args.benchmark_id
             )
-            acceptance_authority = (
-                "provider-verifier-and-deterministic-oracle"
-                if args.acceptance_authority == "deterministic-oracle"
-                else args.acceptance_authority
-            )
+            if args.acceptance_authority != "deterministic-oracle":
+                acceptance_authority = args.acceptance_authority
+            elif args.task_set == "code1":
+                # Code tasks: the harness-held python_tests suite discharges;
+                # the provider verifier is partial evidence only.
+                acceptance_authority = "harness-python-tests-oracle"
+            else:
+                acceptance_authority = "provider-verifier-and-deterministic-oracle"
+            if args.task_set == "scale3":
+                selected_tasks = default_live_scale_tasks()
+            elif args.task_set == "code1":
+                selected_tasks = default_live_code_tasks()
+            else:
+                selected_tasks = None
             report = run_live_agent_harness(
                 runtime_root=args.root,
                 protocol_path=args.protocol,
@@ -263,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
                 principal=principal,
                 benchmark_id=benchmark_id,
                 acceptance_authority=acceptance_authority,
-                tasks=default_live_scale_tasks() if args.task_set == "scale3" else None,
+                tasks=selected_tasks,
                 model_constraints=tuple(args.model_constraint),
                 preferred_unavailable_models=tuple(args.preferred_unavailable_model),
                 model_envelope_notes=args.model_envelope_notes,

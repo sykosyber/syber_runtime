@@ -78,7 +78,18 @@ def run_ai_loop(
     center_id: str = "root",
     confidence_calibrator: ConformalCalibrator | None = None,
     intent_metadata: IntentMetadata | dict | None = None,
+    deterministic_check: dict | None = None,
 ) -> AIOperationResult:
+    """Drive plan -> generate -> verify -> stabilize through model adapters.
+
+    When `deterministic_check` is supplied (a harness-held oracle the model
+    never sees in constraint form), it is the sole discharge authority: the
+    model verifier's output is recorded as partial cross-model evidence and
+    its checkable_oracle is not executed. This is what makes hard code tasks
+    honest — the generator cannot pass by echoing, and the verifier cannot
+    discharge with a weak oracle.
+    """
+
     validate_routing(planner=planner, generator=generator, verifier=verifier)
     if thread_id is None:
         thread_entry = runtime.create_thread(
@@ -156,7 +167,28 @@ def run_ai_loop(
     )
     verified = VerifierOutput.from_payload(verifier_response.payload)
 
-    if verified.checkable_oracle is not None:
+    if deterministic_check is not None:
+        # Cross-model review is recorded as partial evidence only; the
+        # harness-held check below is the discharge authority.
+        runtime.record_verify(
+            thread_id,
+            artifact_digest=artifact_digest,
+            verifier_output=verified,
+            actor=verifier.spec.model_id,
+            center_id=center_id,
+            model_assignment=verifier.spec.to_dict(),
+            intent_metadata=intent_metadata,
+        )
+        verification_entry = runtime.record_test(
+            thread_id,
+            artifact_digest=artifact_digest,
+            check=deterministic_check,
+            actor="runtime",
+            center_id=center_id,
+            intent="Run the harness-held deterministic oracle against the generated artifact.",
+            intent_metadata=intent_metadata,
+        )
+    elif verified.checkable_oracle is not None:
         verification_entry = runtime.record_test(
             thread_id,
             artifact_digest=artifact_digest,
