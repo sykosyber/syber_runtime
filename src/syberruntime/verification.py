@@ -2,17 +2,14 @@
 
 Three text-level checks give the grammar a cheap local discharge path; the
 `python_tests` check executes a real unittest suite against the artifact in a
-subprocess, so an obligation can be discharged by observed behavior rather
-than string comparison.
-
-Safety boundary: `python_tests` runs unsandboxed on the local machine. It is
-only reachable through runtime- or harness-supplied checks; model-supplied
-`checkable_oracle` payloads are restricted to MODEL_ORACLE_CHECK_KINDS (the
-text checks) precisely so a model response can never cause code execution.
+restricted worker, so an obligation can be discharged by observed behavior
+rather than string comparison.
 """
 
 from __future__ import annotations
 
+import json
+import math
 import os
 import subprocess
 import sys
@@ -29,6 +26,11 @@ from syberruntime.models import ArtifactRef
 MODEL_ORACLE_CHECK_KINDS = frozenset({"text_contains", "text_equals", "sha256_equals"})
 SUPPORTED_DETERMINISTIC_CHECK_KINDS = MODEL_ORACLE_CHECK_KINDS | {"python_tests"}
 DEFAULT_PYTHON_TESTS_TIMEOUT_SECONDS = 120.0
+DEFAULT_PYTHON_TESTS_CPU_SECONDS = 30
+DEFAULT_PYTHON_TESTS_MEMORY_MB = 256
+MAX_PYTHON_TESTS_TIMEOUT_SECONDS = 300.0
+MAX_PYTHON_TESTS_CPU_SECONDS = 120
+MAX_PYTHON_TESTS_MEMORY_MB = 1024
 _FAILURE_OUTPUT_TAIL_CHARS = 800
 
 
@@ -96,32 +98,60 @@ class DeterministicVerifier:
             raise VerificationError(
                 f"python_tests artifact_filename must be a bare filename: {artifact_filename!r}"
             )
-        timeout_seconds = float(check.get("timeout_seconds", DEFAULT_PYTHON_TESTS_TIMEOUT_SECONDS))
+        try:
+            timeout_seconds = float(check.get("timeout_seconds", DEFAULT_PYTHON_TESTS_TIMEOUT_SECONDS))
+            cpu_seconds = int(
+                check.get("cpu_seconds", min(DEFAULT_PYTHON_TESTS_CPU_SECONDS, timeout_seconds))
+            )
+            memory_mb = int(check.get("memory_mb", DEFAULT_PYTHON_TESTS_MEMORY_MB))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise VerificationError("python_tests resource limits must be finite numbers") from exc
+        if (
+            not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+            or timeout_seconds > MAX_PYTHON_TESTS_TIMEOUT_SECONDS
+            or cpu_seconds <= 0
+            or cpu_seconds > MAX_PYTHON_TESTS_CPU_SECONDS
+            or memory_mb < 64
+            or memory_mb > MAX_PYTHON_TESTS_MEMORY_MB
+        ):
+            raise VerificationError(
+                "python_tests limits must satisfy: timeout_seconds in (0, 300], "
+                "cpu_seconds in [1, 120], memory_mb in [64, 1024]"
+            )
         extra_pythonpath = check.get("pythonpath", [])
         if not isinstance(extra_pythonpath, (list, tuple)) or not all(
             isinstance(item, str) for item in extra_pythonpath
         ):
             raise VerificationError("python_tests pythonpath must be a list of strings")
 
+        resolved_pythonpath: list[str] = []
+        for item in extra_pythonpath:
+            path = Path(item).resolve(strict=True)
+            if not path.is_dir():
+                raise VerificationError(f"python_tests pythonpath entry must be a directory: {item!r}")
+            resolved_pythonpath.append(str(path))
+
         content = self.blobs.get_text(artifact)
         with tempfile.TemporaryDirectory() as tmp:
-            workdir = Path(tmp)
+            workdir = Path(tmp).resolve()
             (workdir / artifact_filename).write_text(content, encoding="utf-8")
             (workdir / "test_oracle_suite.py").write_text(test_source, encoding="utf-8")
-            env = dict(os.environ)
-            path_entries = [str(workdir), *extra_pythonpath]
-            existing = env.get("PYTHONPATH")
-            if existing:
-                path_entries.append(existing)
-            env["PYTHONPATH"] = os.pathsep.join(path_entries)
+            manifest = {
+                "workdir": str(workdir),
+                "read_roots": resolved_pythonpath,
+                "memory_bytes": memory_mb * 1024 * 1024,
+                "cpu_seconds": cpu_seconds,
+            }
             try:
                 completed = subprocess.run(
-                    [sys.executable, "-m", "unittest", "test_oracle_suite"],
+                    [sys.executable, "-I", str(Path(__file__).with_name("execution_worker.py"))],
                     cwd=str(workdir),
-                    env=env,
+                    env=_minimal_worker_environment(workdir),
+                    input=json.dumps(manifest, sort_keys=True),
                     capture_output=True,
                     text=True,
-                    timeout=timeout_seconds,
+                    timeout=timeout_seconds + 2.0,
                 )
             except subprocess.TimeoutExpired:
                 return VerificationResult(
@@ -139,3 +169,19 @@ class DeterministicVerifier:
             passed=False,
             details=f"test suite failed (exit {completed.returncode}): {tail}",
         )
+
+
+def _minimal_worker_environment(workdir: Path) -> dict[str, str]:
+    env = {
+        "PYTHONHASHSEED": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "TEMP": str(workdir),
+        "TMP": str(workdir),
+    }
+    if os.name == "nt":
+        for key in ("SystemRoot", "WINDIR"):
+            value = os.environ.get(key)
+            if value:
+                env[key] = value
+    return env

@@ -47,19 +47,19 @@ Date: 2026-06-25
    passed. A Doctor Call prototype would add a new control component before the
    next acceptance blocker has been retired.
 
-6. The real MCP config acceptance pass is now recorded.
-   `docs/acceptance_reports/live_mcp_acceptance_002.json` reports
-   `overall_status: pass`, `failure_count: 0`, and `warning_count: 0` with the
-   real MCP config, dogfood evidence, and regenerated un-hinted scale3 evidence
-   supplied.
+6. The historical real MCP config acceptance pass is preserved.
+   `docs/acceptance_reports/live_mcp_acceptance_002.json` predates canonical
+   report IDs and evidence bindings. It records useful historical provider
+   evidence but cannot satisfy the hardened acceptance gate; a 003 rerun is
+   required.
 
 ## Apex Inference
 
-The release-gate evidence path has crossed from `ready_with_warnings` to a
-recorded real-config `pass`. The system has demonstrated live provider scale3
-recovery, acceptance-gated mutation measurement, a first n=1 dogfood report
-under the pre-registered RQ0/RQ6 protocol, and a real MCP/model endpoint
-acceptance pass with zero warnings.
+The stored live campaigns, mutation evidence, dogfood runs, held-out conformal
+gate, and controlled RQ0/RQ6 baseline now pass local recomputation against
+bound runtime logs. The current no-config release status is
+`ready_with_warnings`; the final warning can only be cleared by a fresh
+provider-backed acceptance run under the hardened schema.
 
 ## Recommended Sequence
 

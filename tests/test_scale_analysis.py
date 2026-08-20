@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from syberruntime import BlobStore  # noqa: E402
+from syberruntime.reports import canonical_report_id  # noqa: E402
 from syberruntime.scale_analysis import analyze_scale3_reports, render_scale3_analysis_markdown  # noqa: E402
 
 
@@ -128,7 +129,6 @@ def _write_report(
         "blocked_or_failed_tasks": sum(1 for result in task_results if result["status"] != "pass"),
     }
     report = {
-        "report_id": run_id + "-report",
         "run_id": run_id,
         "protocol_path": "docs/agentic_intent_harness.md",
         "runtime_root": str(runtime_root or path.parent / "runtime"),
@@ -149,7 +149,20 @@ def _write_report(
             "residual_debt": residual_debt,
             "structural_rigor": structural_rigor,
         },
+        "generated_at": "2026-07-21T00:00:00+00:00",
+        "evidence_binding": {
+            "schema_version": 1,
+            "source_revision": "0" * 40,
+            "source_dirty": False,
+            "protocol_sha256": None,
+            "config_sha256": None,
+            "runtime_log_size": None,
+            "runtime_merkle_root": None,
+            "runtime_tail_hash": None,
+            "input_report_ids": [],
+        },
     }
+    report["report_id"] = canonical_report_id(report)
     path.write_text(json.dumps(report), encoding="utf-8")
     return path
 

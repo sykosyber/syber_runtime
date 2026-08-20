@@ -118,6 +118,44 @@ class Phase3MeasurementTests(unittest.TestCase):
             self.assertEqual(metrics.assumption_ledger_coverage, 1.0)
             self.assertGreater(metrics.structural_rigor, 0.9)
 
+    def test_false_discharge_aggregates_all_campaigns_instead_of_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Runtime(tmp, policy=FixedPolicy(default_profile="production"))
+            created = runtime.create_thread(intent="Aggregate campaign evidence")
+            feature = runtime.record_feature(
+                created.operation.thread_id,
+                artifact_name="aggregate.txt",
+                content="release-token\n",
+                intent="Exercise weak and strong mutation campaigns",
+            )
+            digest = feature.operation.outputs[0].digest
+            runtime.record_test(
+                created.operation.thread_id,
+                artifact_digest=digest,
+                check={"kind": "text_equals", "expected": "release-token\n"},
+            )
+            runtime.stabilize(created.operation.thread_id, artifact_digest=digest)
+
+            _weak_entry, weak = runtime.run_mutation_campaign(
+                created.operation.thread_id,
+                artifact_digest=digest,
+                check={"kind": "text_contains", "expected": "release-token"},
+            )
+            _strong_entry, strong = runtime.run_mutation_campaign(
+                created.operation.thread_id,
+                artifact_digest=digest,
+                check={"kind": "text_equals", "expected": "release-token\n"},
+            )
+            metrics = runtime.metrics()
+
+            expected = (
+                weak.false_discharge_rate * weak.mutant_count
+                + strong.false_discharge_rate * strong.mutant_count
+            ) / (weak.mutant_count + strong.mutant_count)
+            self.assertGreater(expected, 0.0)
+            self.assertEqual(metrics.false_discharge_rate, expected)
+            self.assertEqual(metrics.false_discharge_rate_by_profile["production"], expected)
+
 
 if __name__ == "__main__":
     unittest.main()

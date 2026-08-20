@@ -58,14 +58,18 @@ $env:SYBERRUNTIME_PYTHON = $Python
 Push-Location $RepoRoot
 try {
     & $Python -m unittest discover -s tests
+    if ($LASTEXITCODE -ne 0) { throw "Unit tests failed with exit code $LASTEXITCODE." }
     & $Python -m compileall -q src tests examples
+    if ($LASTEXITCODE -ne 0) { throw "Compile check failed with exit code $LASTEXITCODE." }
     & $Python -m syberruntime.cli acceptance-check
+    if ($LASTEXITCODE -ne 0) { throw "Acceptance check failed with exit code $LASTEXITCODE." }
 
     if ($IncludeMockLiveHarness) {
         $runId = "verify-mock-live-" + [System.Guid]::NewGuid().ToString("N")
         $runtimeRoot = Join-Path $env:TEMP ("syber-verify-live-" + [System.Guid]::NewGuid().ToString("N"))
         $reportPath = Join-Path $env:TEMP ($runId + ".json")
         & $Python -m syberruntime.cli --root $runtimeRoot agent-harness run --mode live --config examples\mock_mcp_adapter_config.example.json --run-id $runId --output $reportPath
+        if ($LASTEXITCODE -ne 0) { throw "Mock live harness failed with exit code $LASTEXITCODE." }
     }
 }
 finally {

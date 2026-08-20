@@ -12,9 +12,26 @@ from syberruntime.adapter_config import load_adapter_bundle
 from syberruntime.adapters import ScriptedModelAdapter
 from syberruntime.ai_contracts import ModelSpec
 from syberruntime.dogfood import discover_dogfood_reports, load_dogfood_report
+from syberruntime.empirical import (
+    conformal_gate_passes,
+    discover_empirical_reports,
+    load_empirical_report,
+    rq0_rq6_gate_passes,
+)
 from syberruntime.errors import AdapterError, SyberRuntimeError
 from syberruntime.harness import discover_harness_reports, load_harness_report
 from syberruntime.policy import FixedPolicy
+from syberruntime.reports import (
+    build_evidence_binding,
+    canonical_report_id,
+    file_sha256,
+    generated_at_utc,
+    read_json_report,
+    validate_canonical_report_id,
+    validate_evidence_binding,
+    validate_generated_at,
+    verify_evidence_binding,
+)
 from syberruntime.runtime import Runtime
 
 
@@ -36,8 +53,11 @@ class AcceptanceCriterion:
 
 @dataclass(frozen=True)
 class AcceptanceReport:
+    report_id: str
     overall_status: str
     criteria: tuple[AcceptanceCriterion, ...]
+    generated_at: str
+    evidence_binding: dict[str, Any]
 
     @property
     def failures(self) -> tuple[AcceptanceCriterion, ...]:
@@ -49,10 +69,13 @@ class AcceptanceReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "report_id": self.report_id,
             "overall_status": self.overall_status,
             "criteria": [criterion.to_dict() for criterion in self.criteria],
             "failure_count": len(self.failures),
             "warning_count": len(self.warnings),
+            "generated_at": self.generated_at,
+            "evidence_binding": self.evidence_binding,
         }
 
 
@@ -62,6 +85,7 @@ def run_v1_acceptance_audit(
     mcp_config_path: str | Path | None = None,
     dogfood_report_dir: str | Path | None = None,
     agent_harness_report_dir: str | Path | None = None,
+    empirical_report_dir: str | Path | None = None,
 ) -> AcceptanceReport:
     criteria: list[AcceptanceCriterion] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -74,15 +98,42 @@ def run_v1_acceptance_audit(
         if agent_harness_report_dir is not None
         else root / "docs" / "agentic_harness_reports"
     )
+    empirical_reports_dir = (
+        Path(empirical_report_dir)
+        if empirical_report_dir is not None
+        else root / "docs" / "empirical_reports"
+    )
     criteria.extend(
         _audit_workspace_artifacts(
             root,
             dogfood_report_dir=reports_dir,
             agent_harness_report_dir=harness_reports_dir,
+            empirical_report_dir=empirical_reports_dir,
         )
     )
     overall = _overall_status(criteria)
-    return AcceptanceReport(overall_status=overall, criteria=tuple(criteria))
+    generated_at = generated_at_utc()
+    input_report_ids = _input_report_ids(reports_dir, harness_reports_dir, empirical_reports_dir)
+    binding = build_evidence_binding(
+        workspace_root=root,
+        config_path=mcp_config_path,
+        input_report_ids=input_report_ids,
+    )
+    payload = {
+        "overall_status": overall,
+        "criteria": [criterion.to_dict() for criterion in criteria],
+        "failure_count": sum(1 for criterion in criteria if criterion.status == "fail"),
+        "warning_count": sum(1 for criterion in criteria if criterion.status == "warn"),
+        "generated_at": generated_at,
+        "evidence_binding": binding,
+    }
+    return AcceptanceReport(
+        report_id=canonical_report_id(payload),
+        overall_status=overall,
+        criteria=tuple(criteria),
+        generated_at=generated_at,
+        evidence_binding=binding,
+    )
 
 
 def _audit_runtime_kernel(tmp: str, *, mcp_config_path: str | Path | None) -> list[AcceptanceCriterion]:
@@ -244,6 +295,7 @@ def _audit_workspace_artifacts(
     *,
     dogfood_report_dir: Path,
     agent_harness_report_dir: Path,
+    empirical_report_dir: Path,
 ) -> list[AcceptanceCriterion]:
     prereg = root / "docs" / "rq0_rq6_preregistration.md"
     walkthrough = root / "docs" / "phase4_walkthrough.md"
@@ -260,12 +312,91 @@ def _audit_workspace_artifacts(
             "v1 Phase 4; v1 section 7",
             "written demonstrator walkthrough exists",
         ),
-        _audit_dogfood_reports(dogfood_report_dir),
-        _audit_agent_harness_reports(agent_harness_report_dir),
-        _audit_live_agent_harness_reports(agent_harness_report_dir),
-        _audit_live_scale3_campaign(agent_harness_report_dir),
+        _audit_dogfood_reports(dogfood_report_dir, root),
+        _audit_agent_harness_reports(agent_harness_report_dir, root),
+        _audit_live_agent_harness_reports(agent_harness_report_dir, root),
+        _audit_live_scale3_campaign(agent_harness_report_dir, root),
+        _audit_live_code_campaign(agent_harness_report_dir, root),
+        *_audit_empirical_reports(empirical_report_dir, root),
     ]
     return criteria
+
+
+def _audit_empirical_reports(report_dir: Path, root: Path) -> list[AcceptanceCriterion]:
+    citations = {
+        "heldout_conformal_coverage": "v1 Phase 2 acceptance; v1 section 4.4; v1 section 7",
+        "rq0_rq6_controlled_baseline": "v0.6 RQ0 and RQ6; v1 Phase 3 acceptance; v1 section 7",
+    }
+    reports = discover_empirical_reports(report_dir)
+    if not reports:
+        return [
+            AcceptanceCriterion(
+                id=report_type,
+                status="fail",
+                citation=citation,
+                evidence="required empirical report directory is empty or missing",
+            )
+            for report_type, citation in citations.items()
+        ]
+    try:
+        loaded = [load_empirical_report(path) for path in reports]
+        for report in loaded:
+            runtime = _report_runtime(root, report)
+            verify_evidence_binding(
+                report["evidence_binding"],
+                workspace_root=root,
+                label="empirical",
+                protocol_path=report.get("protocol_path"),
+                runtime=runtime,
+            )
+            if runtime is not None:
+                _verify_empirical_runtime_claims(report, runtime)
+    except (OSError, ValueError, KeyError) as exc:
+        return [
+            AcceptanceCriterion(
+                id=report_type,
+                status="fail",
+                citation=citation,
+                evidence=f"empirical report directory contains invalid evidence: {exc}",
+            )
+            for report_type, citation in citations.items()
+        ]
+
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for report in loaded:
+        by_type.setdefault(str(report["report_type"]), []).append(report)
+
+    conformal_reports = by_type.get("heldout_conformal_coverage", [])
+    conformal = _latest_report(conformal_reports) if conformal_reports else None
+    conformal_passed = conformal is not None and conformal_gate_passes(conformal)
+    conformal_result = conformal.get("result", {}) if conformal is not None else {}
+
+    controlled_reports = by_type.get("rq0_rq6_controlled_baseline", [])
+    controlled = _latest_report(controlled_reports) if controlled_reports else None
+    controlled_passed = controlled is not None and rq0_rq6_gate_passes(controlled)
+    return [
+        AcceptanceCriterion(
+            id="heldout_conformal_coverage",
+            status="pass" if conformal_passed else "fail",
+            citation=citations["heldout_conformal_coverage"],
+            evidence=(
+                f"reports={len(conformal_reports)}; calibration_count="
+                f"{conformal_result.get('calibration_count')}; heldout_count="
+                f"{conformal_result.get('heldout_count')}; empirical_coverage="
+                f"{conformal_result.get('empirical_coverage')}; nominal="
+                f"{1.0 - _safe_float(conformal_result.get('alpha'), 1.0):.3f}"
+            ),
+        ),
+        AcceptanceCriterion(
+            id="rq0_rq6_controlled_baseline",
+            status="pass" if controlled_passed else "fail",
+            citation=citations["rq0_rq6_controlled_baseline"],
+            evidence=(
+                f"reports={len(controlled_reports)}; both RQ0 arms and both RQ6 arms "
+                f"completed with preregistered known-bad rejection={controlled_passed}"
+            ),
+        ),
+    ]
 
 
 def _audit_live_mcp_loop(runtime_root: Path, mcp_config_path: str | Path | None) -> AcceptanceCriterion:
@@ -301,7 +432,7 @@ def _audit_live_mcp_loop(runtime_root: Path, mcp_config_path: str | Path | None)
     )
 
 
-def _audit_dogfood_reports(report_dir: Path) -> AcceptanceCriterion:
+def _audit_dogfood_reports(report_dir: Path, root: Path) -> AcceptanceCriterion:
     reports = discover_dogfood_reports(report_dir)
     if not reports:
         return AcceptanceCriterion(
@@ -313,6 +444,20 @@ def _audit_dogfood_reports(report_dir: Path) -> AcceptanceCriterion:
     try:
         loaded = [load_dogfood_report(path) for path in reports]
         raw_reports = [json.loads(path.read_text(encoding="utf-8")) for path in reports]
+        for report, raw_report in zip(loaded, raw_reports, strict=True):
+            runtime = Runtime(_resolve_report_path(root, report.runtime_root))
+            verify_evidence_binding(
+                raw_report["evidence_binding"],
+                workspace_root=root,
+                label="dogfood",
+                protocol_path=report.protocol_path,
+                runtime=runtime,
+            )
+            if report.metrics != runtime.metrics().to_dict():
+                raise ValueError("dogfood metrics do not match the bound runtime")
+            state = runtime.rebuild_state()
+            if any(digest not in state.artifacts for digest in report.artifact_digests):
+                raise ValueError("dogfood artifact digest is not present in the bound runtime")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         return AcceptanceCriterion(
             id="dogfooding_rq0_rq6_results",
@@ -348,7 +493,7 @@ def _audit_dogfood_reports(report_dir: Path) -> AcceptanceCriterion:
     )
 
 
-def _audit_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
+def _audit_agent_harness_reports(report_dir: Path, root: Path) -> AcceptanceCriterion:
     reports = discover_harness_reports(report_dir)
     if not reports:
         return AcceptanceCriterion(
@@ -358,7 +503,7 @@ def _audit_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
             evidence="agentic intent harness exists, but no baseline harness report was found",
         )
     try:
-        loaded = [load_harness_report(path) for path in reports]
+        loaded = _load_bound_harness_reports(reports, root)
     except (OSError, ValueError, KeyError) as exc:
         return AcceptanceCriterion(
             id="agentic_intent_harness_baseline",
@@ -388,7 +533,7 @@ def _audit_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
     )
 
 
-def _audit_live_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
+def _audit_live_agent_harness_reports(report_dir: Path, root: Path) -> AcceptanceCriterion:
     reports = discover_harness_reports(report_dir)
     if not reports:
         return AcceptanceCriterion(
@@ -398,7 +543,7 @@ def _audit_live_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
             evidence="no live-mode agentic harness report was found",
         )
     try:
-        loaded = [load_harness_report(path) for path in reports]
+        loaded = _load_bound_harness_reports(reports, root)
     except (OSError, ValueError, KeyError) as exc:
         return AcceptanceCriterion(
             id="agentic_intent_harness_live_smoke",
@@ -406,7 +551,13 @@ def _audit_live_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
             citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
             evidence=f"agentic harness report directory contains an invalid report: {exc}",
         )
-    live_reports = [report for report in loaded if str(report.get("mode", "scripted")) == "live"]
+    live_reports = [
+        report
+        for report in loaded
+        if str(report.get("mode", "scripted")) == "live"
+        and "scale3" not in str(report.get("run_id", ""))
+        and "code" not in str(report.get("run_id", ""))
+    ]
     if not live_reports:
         return AcceptanceCriterion(
             id="agentic_intent_harness_live_smoke",
@@ -414,26 +565,24 @@ def _audit_live_agent_harness_reports(report_dir: Path) -> AcceptanceCriterion:
             citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
             evidence="scripted harness baseline exists, but no live-mode harness report was found",
         )
-    stabilized = sum(int(report["summary"].get("stabilized_tasks", 0)) for report in live_reports)
-    attempted = sum(int(report["summary"].get("attempted_tasks", 0)) for report in live_reports)
-    failed_tasks = sum(
-        1
-        for report in live_reports
-        for result in report.get("task_results", [])
-        if result.get("status") != "pass"
-    )
+    latest = _latest_report(live_reports)
+    summary = latest["summary"]
+    attempted = _safe_int(summary.get("attempted_tasks"), 0)
+    stabilized = _safe_int(summary.get("stabilized_tasks"), 0)
+    failed_tasks = _safe_int(summary.get("blocked_or_failed_tasks"), attempted)
+    passed = attempted >= 1 and stabilized == attempted and failed_tasks == 0
     return AcceptanceCriterion(
         id="agentic_intent_harness_live_smoke",
-        status="pass",
+        status="pass" if passed else "fail",
         citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
         evidence=(
-            f"{len(live_reports)} live harness report(s) found; "
+            f"{len(live_reports)} direct live smoke report(s) found; latest_run={latest['run_id']}; "
             f"attempted_tasks={attempted}, stabilized_tasks={stabilized}, failed_tasks={failed_tasks}"
         ),
     )
 
 
-def _audit_live_scale3_campaign(report_dir: Path) -> AcceptanceCriterion:
+def _audit_live_scale3_campaign(report_dir: Path, root: Path) -> AcceptanceCriterion:
     reports = discover_harness_reports(report_dir)
     if not reports:
         return AcceptanceCriterion(
@@ -443,7 +592,7 @@ def _audit_live_scale3_campaign(report_dir: Path) -> AcceptanceCriterion:
             evidence="no agentic harness reports were found, so no live scale3 campaign evidence is available",
         )
     try:
-        loaded = [load_harness_report(path) for path in reports]
+        loaded = _load_bound_harness_reports(reports, root)
     except (OSError, ValueError, KeyError) as exc:
         return AcceptanceCriterion(
             id="live_scale3_campaign",
@@ -463,15 +612,17 @@ def _audit_live_scale3_campaign(report_dir: Path) -> AcceptanceCriterion:
             citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
             evidence="live harness reports exist, but no live scale3 campaign report was found",
         )
-    passing = [report for report in scale3_reports if _live_scale3_report_passes(report)]
-    if not passing:
+    latest = _latest_report(scale3_reports)
+    if not _live_scale3_report_passes(latest):
         return AcceptanceCriterion(
             id="live_scale3_campaign",
             status="fail",
             citation="v0.6 section 3.8; v1 Phase 2; v1 Phase 3; v1 section 7",
-            evidence=f"{len(scale3_reports)} live scale3 campaign report(s) found, but none satisfied the gate",
+            evidence=(
+                f"{len(scale3_reports)} live scale3 campaign report(s) found, but latest_run="
+                f"{latest.get('run_id')} did not satisfy the gate"
+            ),
         )
-    latest = passing[-1]
     summary = latest["summary"]
     metrics = latest["metrics"]
     killed, total = _mutation_totals(latest)
@@ -488,6 +639,72 @@ def _audit_live_scale3_campaign(report_dir: Path) -> AcceptanceCriterion:
             f"false_discharge_rate={float(metrics.get('false_discharge_rate', 0.0)):.3f}, "
             f"residual_debt={float(metrics.get('residual_debt', 0.0)):.3f}, "
             f"mutants_killed={killed}/{total}"
+        ),
+    )
+
+
+def _audit_live_code_campaign(report_dir: Path, root: Path) -> AcceptanceCriterion:
+    reports = discover_harness_reports(report_dir)
+    citation = "v0.6 sections 3.5 and 3.8; v1 Phase 1; v1 Phase 3; v1 section 7"
+    if not reports:
+        return AcceptanceCriterion(
+            id="live_code_behavioral_campaign",
+            status="warn",
+            citation=citation,
+            evidence="no agentic harness reports were found, so no hard live code evidence is available",
+        )
+    try:
+        loaded = _load_bound_harness_reports(reports, root)
+    except (OSError, ValueError, KeyError) as exc:
+        return AcceptanceCriterion(
+            id="live_code_behavioral_campaign",
+            status="fail",
+            citation=citation,
+            evidence=f"agentic harness report directory contains an invalid report: {exc}",
+        )
+    code_reports = [
+        report
+        for report in loaded
+        if str(report.get("mode", "scripted")) == "live" and "code" in str(report.get("run_id", ""))
+    ]
+    if not code_reports:
+        return AcceptanceCriterion(
+            id="live_code_behavioral_campaign",
+            status="warn",
+            citation=citation,
+            evidence="live harness reports exist, but no hard live code campaign report was found",
+        )
+    latest = _latest_report(code_reports)
+    task_results = latest.get("task_results", [])
+    passed = bool(task_results)
+    killed = 0
+    total = 0
+    for result in task_results:
+        mutation = result.get("mutation_report") if isinstance(result, dict) else None
+        if result.get("status") != "pass" or not result.get("stabilized") or not isinstance(mutation, dict):
+            passed = False
+            continue
+        check = mutation.get("check", {})
+        operators = [item.get("operator", "") for item in mutation.get("results", []) if isinstance(item, dict)]
+        if (
+            mutation.get("baseline_passed") is not True
+            or not isinstance(check, dict)
+            or check.get("kind") != "python_tests"
+            or not operators
+            or any(not str(operator).startswith("ast_") for operator in operators)
+        ):
+            passed = False
+        killed += _safe_int(mutation.get("killed_count"), 0)
+        total += _safe_int(mutation.get("mutant_count"), 0)
+    passed = passed and total > 0 and killed == total
+    return AcceptanceCriterion(
+        id="live_code_behavioral_campaign",
+        status="pass" if passed else "fail",
+        citation=citation,
+        evidence=(
+            f"{len(code_reports)} hard live code report(s) found; latest_run={latest.get('run_id')}; "
+            f"tasks={len(task_results)}, mutants_killed={killed}/{total}; "
+            "required_oracle=python_tests; required_mutation_family=ast"
         ),
     )
 
@@ -542,6 +759,108 @@ def _safe_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _latest_report(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    return max(reports, key=lambda report: (str(report.get("generated_at", "")), str(report.get("run_id", ""))))
+
+
+def _load_bound_harness_reports(reports: tuple[Path, ...], root: Path) -> list[dict[str, Any]]:
+    loaded = [load_harness_report(path) for path in reports]
+    for report in loaded:
+        runtime = Runtime(_resolve_report_path(root, report["runtime_root"]))
+        verify_evidence_binding(
+            report["evidence_binding"],
+            workspace_root=root,
+            label="harness",
+            protocol_path=report.get("protocol_path"),
+            config_path=report.get("provider_config_path"),
+            runtime=runtime,
+        )
+        _verify_harness_runtime_claims(report, runtime)
+    return loaded
+
+
+def _verify_harness_runtime_claims(report: dict[str, Any], runtime: Runtime) -> None:
+    if report.get("metrics") != runtime.metrics().to_dict():
+        raise ValueError("harness metrics do not match the bound runtime")
+    state = runtime.rebuild_state()
+    measurements = [
+        operation.params["measurement"]
+        for operation in state.operations.values()
+        if isinstance(operation.params.get("measurement"), dict)
+        and operation.params["measurement"].get("kind") == "mutation_campaign"
+    ]
+    for result in report.get("task_results", []):
+        digest = result.get("artifact_digest")
+        if digest is not None:
+            artifact = state.artifacts.get(str(digest))
+            if artifact is None:
+                raise ValueError("harness task artifact is not present in the bound runtime")
+            if bool(result.get("stabilized")) != (artifact.stabilized_by is not None):
+                raise ValueError("harness stabilization claim does not match the bound runtime")
+        mutation = result.get("mutation_report")
+        if isinstance(mutation, dict):
+            if not any(
+                all(measurement.get(key) == value for key, value in mutation.items())
+                for measurement in measurements
+            ):
+                raise ValueError("harness mutation report is not present in the bound runtime")
+
+
+def _verify_empirical_runtime_claims(report: dict[str, Any], runtime: Runtime) -> None:
+    if report.get("report_type") != "rq0_rq6_controlled_baseline":
+        return
+    operation_arm = report.get("result", {}).get("rq0", {}).get("operation_primary", {})
+    metrics = runtime.metrics()
+    if operation_arm.get("action_cost") != metrics.action_cost:
+        raise ValueError("empirical RQ0 action_cost does not match the bound runtime")
+    if operation_arm.get("provenance_completeness") != metrics.provenance_completeness:
+        raise ValueError("empirical RQ0 provenance does not match the bound runtime")
+
+
+def _report_runtime(root: Path, report: dict[str, Any]) -> Runtime | None:
+    runtime_root = report.get("runtime_root")
+    if runtime_root is None:
+        return None
+    return Runtime(_resolve_report_path(root, runtime_root))
+
+
+def _resolve_report_path(root: Path, value: str | Path) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else root / path
+
+
+def _input_report_ids(*directories: Path) -> list[str]:
+    report_ids: list[str] = []
+    for directory in directories:
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*.json")):
+            try:
+                data = read_json_report(path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            report_id = data.get("report_id")
+            if isinstance(report_id, str):
+                report_ids.append(report_id)
+    return report_ids
+
+
+def validate_acceptance_report(data: dict[str, Any]) -> None:
+    validate_canonical_report_id(data, label="acceptance")
+    validate_evidence_binding(data.get("evidence_binding"), label="acceptance")
+    validate_generated_at(data.get("generated_at"), label="acceptance")
+    criteria = data.get("criteria")
+    if not isinstance(criteria, list):
+        raise ValueError("acceptance criteria must be a list")
+    failures = sum(1 for item in criteria if isinstance(item, dict) and item.get("status") == "fail")
+    warnings = sum(1 for item in criteria if isinstance(item, dict) and item.get("status") == "warn")
+    if data.get("failure_count") != failures or data.get("warning_count") != warnings:
+        raise ValueError("acceptance failure/warning counts do not match criteria")
+    expected_status = "fail" if failures else ("ready_with_warnings" if warnings else "pass")
+    if data.get("overall_status") != expected_status:
+        raise ValueError("acceptance overall_status does not match criteria")
 
 
 def _criterion(id: str, passed: bool, citation: str, evidence: str) -> AcceptanceCriterion:

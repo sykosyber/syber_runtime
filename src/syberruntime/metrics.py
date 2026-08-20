@@ -19,6 +19,7 @@ class RuntimeMetrics:
     provenance_completeness: float
     assumption_ledger_coverage: float
     false_discharge_rate: float
+    false_discharge_rate_by_profile: dict[str, float]
     discharge_efficiency_by_profile: dict[str, float]
     structural_rigor: float
 
@@ -32,6 +33,7 @@ class RuntimeMetrics:
             "provenance_completeness": self.provenance_completeness,
             "assumption_ledger_coverage": self.assumption_ledger_coverage,
             "false_discharge_rate": self.false_discharge_rate,
+            "false_discharge_rate_by_profile": dict(sorted(self.false_discharge_rate_by_profile.items())),
             "discharge_efficiency_by_profile": dict(sorted(self.discharge_efficiency_by_profile.items())),
             "structural_rigor": self.structural_rigor,
         }
@@ -53,7 +55,10 @@ def compute_runtime_metrics(state: RuntimeState) -> RuntimeMetrics:
         len(feature_ops),
     )
     discharge_efficiency_by_profile = _discharge_efficiency_by_profile(state, operations)
-    false_discharge_rate = _latest_false_discharge_rate(operations)
+    false_discharge_rate, false_discharge_rate_by_profile = _aggregate_false_discharge_rates(
+        state,
+        operations,
+    )
     debt_score = 1.0 / (1.0 + state.debt.total_residual_debt())
     structural_rigor = (provenance_completeness + assumption_ledger_coverage + debt_score + (1.0 - false_discharge_rate)) / 4
 
@@ -66,6 +71,7 @@ def compute_runtime_metrics(state: RuntimeState) -> RuntimeMetrics:
         provenance_completeness=provenance_completeness,
         assumption_ledger_coverage=assumption_ledger_coverage,
         false_discharge_rate=false_discharge_rate,
+        false_discharge_rate_by_profile=false_discharge_rate_by_profile,
         discharge_efficiency_by_profile=discharge_efficiency_by_profile,
         structural_rigor=structural_rigor,
     )
@@ -86,15 +92,43 @@ def _has_minimal_provenance(operation: Operation) -> bool:
     return bool(operation.provenance.actor and operation.provenance.ts)
 
 
-def _latest_false_discharge_rate(operations: tuple[Operation, ...]) -> float:
-    rates = []
+def _aggregate_false_discharge_rates(
+    state: RuntimeState,
+    operations: tuple[Operation, ...],
+) -> tuple[float, dict[str, float]]:
+    """Return mutant-weighted rates across every recorded campaign.
+
+    Required by v1 Phase 3 measurement: later campaigns must extend the
+    evidence population rather than overwrite an earlier observed failure.
+    """
+
+    artifact_profiles = {
+        obligation.artifact_digest: obligation.rigor_profile
+        for obligation in state.debt.obligations.values()
+    }
+    totals: dict[str, list[float]] = {}
     for operation in operations:
         measurement = operation.params.get("measurement", {})
-        if not measurement:
+        if measurement.get("kind") != "mutation_campaign":
             continue
-        if "false_discharge_rate" in measurement:
-            rates.append(float(measurement["false_discharge_rate"]))
-    return rates[-1] if rates else 0.0
+        mutant_count = int(measurement.get("mutant_count", 0))
+        if mutant_count <= 0:
+            continue
+        false_discharges = float(measurement.get("false_discharge_rate", 0.0)) * mutant_count
+        artifact_digest = str(measurement.get("artifact_digest", ""))
+        profile = artifact_profiles.get(artifact_digest, "unknown")
+        sample = totals.setdefault(profile, [0.0, 0.0])
+        sample[0] += false_discharges
+        sample[1] += mutant_count
+
+    by_profile = {
+        profile: false_discharges / mutant_count
+        for profile, (false_discharges, mutant_count) in sorted(totals.items())
+        if mutant_count > 0
+    }
+    total_false = sum(sample[0] for sample in totals.values())
+    total_mutants = sum(sample[1] for sample in totals.values())
+    return (total_false / total_mutants if total_mutants else 0.0), by_profile
 
 
 def _discharge_efficiency_by_profile(state: RuntimeState, operations: tuple[Operation, ...]) -> dict[str, float]:

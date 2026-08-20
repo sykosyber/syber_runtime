@@ -305,6 +305,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.output is not None:
             write_json_report(report.to_dict(), args.output)
         _print_json(report.to_dict())
+        if report.overall_status == "fail":
+            return 1
     elif args.command == "replay-check":
         _print_json({"deterministic": runtime.replay_is_deterministic()})
     else:

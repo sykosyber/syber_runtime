@@ -97,19 +97,22 @@ python -m syberruntime.cli acceptance-check
 Write the real-config acceptance audit to a canonical JSON artifact:
 
 ```powershell
-python -m syberruntime.cli acceptance-check --mcp-config examples\mcp_adapter_config.example.json --dogfood-report-dir docs\dogfood_reports --output docs\acceptance_reports\live_mcp_acceptance_002.json
+python -m syberruntime.cli acceptance-check --mcp-config examples\mcp_adapter_config.example.json --dogfood-report-dir docs\dogfood_reports --output docs\acceptance_reports\live_mcp_acceptance_003.json
 ```
 
-Expected local status without `--mcp-config` is `ready_with_warnings`. With the
-real MCP config and dogfood report supplied, the recorded acceptance artifact is
-`docs/acceptance_reports/live_mcp_acceptance_002.json` with `overall_status:
-pass`. The first real RQ0/RQ6 dogfood report is present under
+Expected local status without `--mcp-config` is `ready_with_warnings`. Reports
+001 and 002 under `docs/acceptance_reports` are historical provider-pass
+artifacts created before canonical report IDs and evidence bindings; they do not
+satisfy the current fail-closed gate. The next real-config run must produce
+`live_mcp_acceptance_003.json`. The first real RQ0/RQ6 dogfood report is present under
 `docs/dogfood_reports/rq0_rq6_run_001.json`.
 The scripted Agentic Intent Harness baseline is audited separately and should
 pass in the local tree.
 Live-mode Agentic Intent Harness reports are also audited separately; absence is
 a warning until a live smoke report is intentionally generated. The passing
-three-task live scale campaign is audited as `live_scale3_campaign`.
+three-task live scale campaign is audited as `live_scale3_campaign`. The hard
+behavioral code campaign, held-out conformal coverage, and controlled RQ0/RQ6
+baseline are also mandatory acceptance criteria.
 
 ### Evidence-integrity caveat for pre-2026-07-05 live reports
 

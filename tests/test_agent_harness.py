@@ -27,6 +27,7 @@ from syberruntime.harness import (  # noqa: E402
     validate_harness_report,
     write_harness_report,
 )
+from syberruntime.reports import canonical_report_id  # noqa: E402
 
 
 class AgentHarnessTests(unittest.TestCase):
@@ -150,9 +151,9 @@ class AgentHarnessTests(unittest.TestCase):
 
     def test_live_harness_failure_report_can_be_valid_evidence(self) -> None:
         validate_harness_report(
-            {
+            _canonical_harness_fixture(
+                {
                 "mode": "live",
-                "report_id": "provider-failure",
                 "run_id": "provider-failure",
                 "protocol_path": "protocol",
                 "runtime_root": "runtime",
@@ -177,7 +178,8 @@ class AgentHarnessTests(unittest.TestCase):
                 ],
                 "summary": {"attempted_tasks": 1, "stabilized_tasks": 0, "blocked_or_failed_tasks": 1},
                 "metrics": {"action_cost": 0},
-            }
+                }
+            )
         )
 
     def test_live_harness_failure_preserves_partial_artifact_evidence(self) -> None:
@@ -326,6 +328,23 @@ class _DiagnosticFailingAdapter:
 
     def call(self, _request: object) -> object:
         raise AdapterError("MCP tool returned isError=true", diagnostic=self.diagnostic)
+
+
+def _canonical_harness_fixture(payload: dict) -> dict:
+    payload["generated_at"] = "2026-07-21T00:00:00+00:00"
+    payload["evidence_binding"] = {
+        "schema_version": 1,
+        "source_revision": "0" * 40,
+        "source_dirty": False,
+        "protocol_sha256": None,
+        "config_sha256": None,
+        "runtime_log_size": None,
+        "runtime_merkle_root": None,
+        "runtime_tail_hash": None,
+        "input_report_ids": [],
+    }
+    payload["report_id"] = canonical_report_id(payload)
+    return payload
 
 
 if __name__ == "__main__":

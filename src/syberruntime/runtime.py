@@ -547,6 +547,9 @@ class Runtime:
         return export_ro_crate(self.rebuild_state())
 
     def shred_blob(self, artifact_digest: str, *, reason: str = "deletion-rights request") -> bool:
+        state = self.rebuild_state()
+        if artifact_digest not in state.artifacts:
+            raise KeyError(f"Cannot shred unknown artifact: {artifact_digest}")
         return self.blobs.shred(artifact_digest, reason=reason)
 
     def run_ai_loop(

@@ -17,10 +17,16 @@ from syberruntime.dogfood import (  # noqa: E402
     write_dogfood_report,
 )
 from syberruntime.harness import (  # noqa: E402
+    default_live_code_tasks,
     default_live_scale_tasks,
     run_live_agent_harness,
     run_scripted_agent_harness,
     write_harness_report,
+)
+from syberruntime.reports import (  # noqa: E402
+    build_evidence_binding,
+    canonical_report_id,
+    write_json_report,
 )
 
 
@@ -60,6 +66,13 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
             root = Path(tmp)
             server = _write_mcp_server(root)
             config = _write_adapter_config(root, server)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "rq0_rq6_preregistration.md").write_text("protocol", encoding="utf-8")
+            (docs / "conformal_coverage_preregistration.md").write_text("protocol", encoding="utf-8")
+            (docs / "phase4_walkthrough.md").write_text("walkthrough", encoding="utf-8")
+            (root / "agentic_protocol.md").write_text("protocol", encoding="utf-8")
+            (root / "protocol.md").write_text("protocol", encoding="utf-8")
             runtime = Runtime(root / "dogfood-runtime", policy=FixedPolicy(default_profile="production"))
             thread = runtime.create_thread(intent="Dogfood report fixture")
             feature = runtime.record_feature(
@@ -132,10 +145,15 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
                 tasks=default_live_scale_tasks(),
             )
             write_harness_report(scale3_report, harness_report_dir / "scale3-report.json")
-            docs = root / "docs"
-            docs.mkdir()
-            (docs / "rq0_rq6_preregistration.md").write_text("protocol", encoding="utf-8")
-            (docs / "phase4_walkthrough.md").write_text("walkthrough", encoding="utf-8")
+            code_report = run_live_agent_harness(
+                runtime_root=root / "live-code-runtime",
+                protocol_path=root / "agentic_protocol.md",
+                run_id="acceptance-live-code-fixture",
+                config_path=config,
+                tasks=default_live_code_tasks(),
+            )
+            write_harness_report(code_report, harness_report_dir / "code-report.json")
+            _write_empirical_fixtures(root, runtime)
 
             acceptance = run_v1_acceptance_audit(
                 workspace_root=root,
@@ -144,7 +162,7 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
                 agent_harness_report_dir=harness_report_dir,
             )
 
-            self.assertEqual(acceptance.overall_status, "pass")
+            self.assertEqual(acceptance.overall_status, "pass", acceptance.to_dict())
             self.assertEqual(acceptance.failures, ())
             self.assertEqual(acceptance.warnings, ())
 
@@ -152,23 +170,30 @@ class LiveConfigAndDogfoodTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             report_dir = Path(tmp) / "reports"
             report_dir.mkdir()
-            (report_dir / "legacy-empty.json").write_text(
-                json.dumps(
-                    {
-                        "report_id": "legacy-empty",
+            workspace_root = Path(__file__).resolve().parents[1]
+            empty_runtime = Runtime(Path(tmp) / "empty-runtime")
+            legacy = {
                         "protocol_path": "docs/rq0_rq6_preregistration.md",
-                        "runtime_root": ".syberruntime-dogfood-empty",
-                        "artifact_digests": [],
-                        "metrics": {},
-                        "notes": "Invalid fixture: no artifact evidence and no model envelope.",
-                        "scope": "n=1 feasibility evidence",
-                    }
-                ),
+                        "runtime_root": str(empty_runtime.root),
+                "artifact_digests": [],
+                        "metrics": empty_runtime.metrics().to_dict(),
+                "notes": "Invalid fixture: no artifact evidence and no model envelope.",
+                "scope": "n=1 feasibility evidence",
+                "generated_at": "2026-07-21T00:00:00+00:00",
+                        "evidence_binding": build_evidence_binding(
+                            workspace_root=workspace_root,
+                            protocol_path="docs/rq0_rq6_preregistration.md",
+                            runtime=empty_runtime,
+                        ),
+            }
+            legacy["report_id"] = canonical_report_id(legacy)
+            (report_dir / "legacy-empty.json").write_text(
+                json.dumps(legacy),
                 encoding="utf-8",
             )
 
             acceptance = run_v1_acceptance_audit(
-                workspace_root=Path(__file__).resolve().parents[1],
+                workspace_root=workspace_root,
                 dogfood_report_dir=report_dir,
             )
             criterion_by_id = {criterion.id: criterion for criterion in acceptance.criteria}
@@ -226,6 +251,20 @@ def model_payload(role, request):
             "rationale": "Use a deterministic textual oracle.",
         }
     if role == "generator":
+        if "merge_intervals" in intent:
+            return {
+                "assumptions": [
+                    {
+                        "claim": "A sorted fold is sufficient",
+                        "depends_on": "The deterministic suite covers boundary cases",
+                        "confidence_rationale": "The behavior is deterministic",
+                        "alternatives_considered": "Sweep-line implementation",
+                    }
+                ],
+                "plan": "Sort and merge overlapping or touching intervals.",
+                "artifact": "def merge_intervals(intervals):\\n    merged = []\\n    for start, end in sorted([list(pair) for pair in intervals]):\\n        if merged and start <= merged[-1][1]:\\n            merged[-1][1] = max(merged[-1][1], end)\\n        else:\\n            merged.append([start, end])\\n    return merged\\n",
+                "self_identified_risks": [],
+            }
         return {
             "assumptions": [
                 {
@@ -341,6 +380,73 @@ def _write_adapter_config(root: Path, server: Path, *, executable: str = sys.exe
     }
     config.write_text(json.dumps(data), encoding="utf-8")
     return config
+
+
+def _write_empirical_fixtures(root: Path, runtime: Runtime) -> None:
+    report_dir = root / "docs" / "empirical_reports"
+    conformal = {
+        "report_type": "heldout_conformal_coverage",
+        "protocol_path": "docs/conformal_coverage_preregistration.md",
+        "scope": "n=1 feasibility evidence",
+        "generated_at": "2026-07-21T00:00:00+00:00",
+        "evidence_binding": build_evidence_binding(
+            workspace_root=root,
+            protocol_path="docs/conformal_coverage_preregistration.md",
+        ),
+        "result": {
+            "alpha": 0.2,
+            "threshold": 0.4,
+            "calibration_count": 9,
+            "heldout_count": 5,
+            "calibration_scores": [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45],
+            "heldout_scores": [0.08, 0.18, 0.28, 0.38, 0.48],
+            "empirical_coverage": 0.8,
+            "cohorts_disjoint": True,
+            "scores_from_model_verbal_confidence": False,
+        },
+    }
+    conformal["report_id"] = canonical_report_id(conformal)
+    write_json_report(conformal, report_dir / "conformal.json")
+
+    controlled = {
+        "report_type": "rq0_rq6_controlled_baseline",
+        "protocol_path": "docs/rq0_rq6_preregistration.md",
+        "runtime_root": str(runtime.root),
+        "scope": "n=1 feasibility evidence",
+        "generated_at": "2026-07-21T00:00:01+00:00",
+        "evidence_binding": build_evidence_binding(
+            workspace_root=root,
+            protocol_path="docs/rq0_rq6_preregistration.md",
+            runtime=runtime,
+        ),
+        "result": {
+            "preregistered_before_execution": True,
+            "rq0": {
+                "operation_primary": {
+                    "completed": True,
+                    "action_cost": runtime.metrics().action_cost,
+                    "provenance_completeness": runtime.metrics().provenance_completeness,
+                    "recomprehension_seconds": 0.01,
+                },
+                "snapshot_baseline": {"completed": True, "recomprehension_seconds": 0.02},
+            },
+            "rq6": {
+                "grammar_enforced": {
+                    "completed": True,
+                    "known_bad_test_passed": False,
+                    "stabilization_blocked": True,
+                    "accepted_downstream": False,
+                },
+                "unbounded_generation": {
+                    "completed": True,
+                    "accepted_before_verification": True,
+                    "downstream_defect_detected": True,
+                },
+            },
+        },
+    }
+    controlled["report_id"] = canonical_report_id(controlled)
+    write_json_report(controlled, report_dir / "controlled.json")
 
 
 if __name__ == "__main__":

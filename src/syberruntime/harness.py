@@ -13,11 +13,21 @@ from typing import Any
 
 from syberruntime.adapter_config import load_adapter_bundle
 from syberruntime.errors import SyberRuntimeError
-from syberruntime.hashing import digest_json
 from syberruntime.intent import IntentMetadata
 from syberruntime.model_capability import model_capability_envelope
 from syberruntime.policy import FixedPolicy
-from syberruntime.reports import discover_json_reports, read_json_report, write_json_report
+from syberruntime.reports import (
+    build_evidence_binding,
+    canonical_report_id,
+    discover_json_reports,
+    generated_at_utc,
+    read_json_report,
+    validate_canonical_report_id,
+    validate_evidence_binding,
+    validate_generated_at,
+    workspace_root_for_evidence_path,
+    write_json_report,
+)
 from syberruntime.runtime import Runtime
 
 
@@ -136,6 +146,8 @@ class HarnessReport:
     provider_config_path: str | None = None
     model_assignments: dict[str, Any] | None = None
     model_capability_envelope: dict[str, Any] | None = None
+    generated_at: str = ""
+    evidence_binding: dict[str, Any] | None = None
 
     @property
     def attempted_tasks(self) -> int:
@@ -167,6 +179,8 @@ class HarnessReport:
                 "blocked_or_failed_tasks": self.blocked_or_failed_tasks,
             },
             "metrics": self.metrics,
+            "generated_at": self.generated_at,
+            "evidence_binding": self.evidence_binding or {},
         }
 
 
@@ -319,6 +333,12 @@ def run_scripted_agent_harness(
     )
     results = tuple(_run_task(runtime, task, metadata) for task in (tasks or default_scripted_tasks()))
     metrics = runtime.metrics().to_dict()
+    generated_at = generated_at_utc()
+    binding = build_evidence_binding(
+        workspace_root=workspace_root_for_evidence_path(protocol_path),
+        protocol_path=protocol_path,
+        runtime=runtime,
+    )
     payload = {
         "mode": "scripted",
         "run_id": run_id,
@@ -327,6 +347,17 @@ def run_scripted_agent_harness(
         "intent_metadata": metadata.to_dict(),
         "task_results": [result.to_dict() for result in results],
         "metrics": metrics,
+        "summary": {
+            "attempted_tasks": len(results),
+            "stabilized_tasks": sum(1 for result in results if result.stabilized),
+            "blocked_or_failed_tasks": sum(
+                1 for result in results if result.status != "pass" or not result.stabilized
+            ),
+        },
+        "provider_config_path": None,
+        "model_assignments": {},
+        "generated_at": generated_at,
+        "evidence_binding": binding,
         "model_capability_envelope": model_capability_envelope(
             constraints=model_constraints
             or ("scripted harness uses deterministic local fixtures rather than external model calls",),
@@ -335,7 +366,7 @@ def run_scripted_agent_harness(
         ),
     }
     return HarnessReport(
-        report_id=digest_json(payload),
+        report_id=canonical_report_id(payload),
         run_id=run_id,
         protocol_path=str(protocol_path),
         runtime_root=str(runtime.root),
@@ -344,6 +375,8 @@ def run_scripted_agent_harness(
         metrics=metrics,
         mode="scripted",
         model_capability_envelope=payload["model_capability_envelope"],
+        generated_at=generated_at,
+        evidence_binding=binding,
     )
 
 
@@ -404,6 +437,13 @@ def run_live_agent_harness(
         for task in selected_tasks
     )
     metrics = runtime.metrics().to_dict()
+    generated_at = generated_at_utc()
+    binding = build_evidence_binding(
+        workspace_root=workspace_root_for_evidence_path(protocol_path),
+        protocol_path=protocol_path,
+        config_path=config_path,
+        runtime=runtime,
+    )
     payload = {
         "mode": "live",
         "run_id": run_id,
@@ -415,9 +455,18 @@ def run_live_agent_harness(
         "intent_metadata": metadata.to_dict(),
         "task_results": [result.to_dict() for result in results],
         "metrics": metrics,
+        "summary": {
+            "attempted_tasks": len(results),
+            "stabilized_tasks": sum(1 for result in results if result.stabilized),
+            "blocked_or_failed_tasks": sum(
+                1 for result in results if result.status != "pass" or not result.stabilized
+            ),
+        },
+        "generated_at": generated_at,
+        "evidence_binding": binding,
     }
     return HarnessReport(
-        report_id=digest_json(payload),
+        report_id=canonical_report_id(payload),
         run_id=run_id,
         protocol_path=str(protocol_path),
         runtime_root=str(runtime.root),
@@ -428,6 +477,8 @@ def run_live_agent_harness(
         provider_config_path=str(config_path),
         model_assignments=model_assignments,
         model_capability_envelope=capability_envelope,
+        generated_at=generated_at,
+        evidence_binding=binding,
     )
 
 
@@ -446,9 +497,23 @@ def load_harness_report(path: str | Path) -> dict[str, Any]:
 
 
 def validate_harness_report(data: dict[str, Any]) -> None:
-    for key in ("report_id", "run_id", "protocol_path", "runtime_root", "intent_metadata", "task_results", "summary", "metrics"):
+    for key in (
+        "report_id",
+        "run_id",
+        "protocol_path",
+        "runtime_root",
+        "intent_metadata",
+        "task_results",
+        "summary",
+        "metrics",
+        "generated_at",
+        "evidence_binding",
+    ):
         if key not in data:
             raise ValueError(f"harness report missing required key: {key}")
+    validate_canonical_report_id(data, label="harness")
+    validate_evidence_binding(data["evidence_binding"], label="harness")
+    validate_generated_at(data["generated_at"], label="harness")
     metadata = data["intent_metadata"]
     if not isinstance(metadata, dict):
         raise ValueError("harness report intent_metadata must be an object")
@@ -472,6 +537,15 @@ def validate_harness_report(data: dict[str, Any]) -> None:
             raise ValueError("harness report task result must be an object")
         if result.get("status") not in {"pass", "fail"}:
             raise ValueError("harness report task status must be pass or fail")
+    expected_summary = {
+        "attempted_tasks": len(task_results),
+        "stabilized_tasks": sum(1 for result in task_results if bool(result.get("stabilized"))),
+        "blocked_or_failed_tasks": sum(
+            1 for result in task_results if result.get("status") != "pass" or not bool(result.get("stabilized"))
+        ),
+    }
+    if summary != expected_summary:
+        raise ValueError(f"harness report summary mismatch: expected {expected_summary}, found {summary}")
     metrics = data["metrics"]
     if not isinstance(metrics, dict):
         raise ValueError("harness report metrics must be an object")

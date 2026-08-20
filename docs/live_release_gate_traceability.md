@@ -10,7 +10,8 @@ section 7 release gate after Phases 0 through 4 are implemented.
 | Configured `ai-loop` CLI | v1 Phase 2; v1 section 7 | Implemented in `src/syberruntime/cli.py`. |
 | Acceptance live-MCP criterion | v1 Phase 2; v1 section 7 | Implemented as `live_mcp_real_ai_endpoint`; warns when no config is supplied and fails unless the provider-backed loop creates exact content, emits a deterministic oracle, discharges debt, and stabilizes. |
 | Acceptance report artifact | v0.6 section 3.8; v1 section 7 | `acceptance-check --output` writes a canonical JSON report so a fresh reviewer can inspect release-gate evidence without relying on terminal scrollback. |
-| Regenerated real MCP acceptance report | v1 Phase 2; v1 section 7 | Collected as `docs/acceptance_reports/live_mcp_acceptance_002.json`; `overall_status: pass`, `failure_count: 0`, `warning_count: 0`, `passing_run=agentic-live-scale3-004`. |
+| Historical real MCP acceptance report | v1 Phase 2; v1 section 7 | `live_mcp_acceptance_002.json` recorded a provider-backed pass, but predates canonical IDs and evidence bindings. It is historical evidence and cannot satisfy the hardened gate. |
+| Hardened real MCP acceptance rerun | v0.6 sections 3.7-3.8; v1 section 7 | Pending as `live_mcp_acceptance_003.json`; it must pass all 18 current criteria under a real config. |
 | Dogfood report model | v0.6 section 6; v1 Phase 3; v1 section 7 | Implemented in `src/syberruntime/dogfood.py`. |
 | Dogfood report CLI | v1 Phase 3; v1 section 7 | Implemented as `dogfood-report`. |
 | Model capability envelope | v1 section 6; v1 Phase 3; v1 section 7 | Dogfood and harness reports record available role models, constrained access, unavailable preferred models, and lower-bound interpretation. |
@@ -21,8 +22,9 @@ section 7 release gate after Phases 0 through 4 are implemented.
 
 ## Recorded Live Gate Pass
 
-The regenerated real MCP acceptance pass was run with
+The historical real MCP acceptance pass was run with
 `examples/mcp_adapter_config.example.json`,
 `docs/dogfood_reports/rq0_rq6_run_001.json`, and the un-hinted live evidence
-reports `agentic-live-004` and `agentic-live-scale3-004`. The recorded report is
-`docs/acceptance_reports/live_mcp_acceptance_002.json`.
+reports `agentic-live-004` and `agentic-live-scale3-004`. Its report predates
+the hardened schema. Current stored campaign evidence passes local
+recomputation; a fresh provider-backed acceptance run remains required.

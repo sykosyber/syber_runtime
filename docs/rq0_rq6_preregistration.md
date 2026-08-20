@@ -101,3 +101,36 @@ by profile, and whether Stabilize was blocked before discharge.
   deferred; run 002 supports feasibility claims for the execution-oracle
   discharge path only.
 - Survived mutants, if any, will be reported, not excluded.
+
+## Controlled Baseline Run 001 Addendum
+
+This addendum closes the deferred baseline requirement in **v1 Phase 3
+acceptance** and is recorded before generating the controlled report under
+docs/empirical_reports.
+
+### Fixed Task And Arms
+
+The task is a Python parse_positive_int(value) component. The correct
+implementation accepts positive decimal strings and rejects zero, negative
+strings, non-decimal strings, and non-string inputs.
+
+- RQ0 operation-primary arm: create the correct component through
+  Thread -> Feature -> deterministic python_tests -> Stabilize -> mutation
+  campaign, then inspect its provenance/debt/assumption trace.
+- RQ0 snapshot baseline arm: store the same correct source plus one ordinary
+  JSON notes snapshot, without operation grammar.
+- RQ6 grammar-enforced arm: submit a known-bad return int(value)
+  implementation; the fixed test suite must fail and Stabilize must be blocked.
+- RQ6 unbounded arm: mark the same known-bad source accepted before verification,
+  then run the same test suite downstream and record whether the defect appears.
+
+### Fixed Measures And Gate
+
+Record action cost, provenance completeness, and re-comprehension wall time for
+both RQ0 arms. Wall time is descriptive and is not a pass threshold. Acceptance
+requires both arms to complete. For RQ6, acceptance requires the grammar to
+reject and block the known-bad artifact while the unbounded arm demonstrates
+that pre-verification acceptance permits the defect downstream.
+
+The report remains autobiographical n=1 feasibility evidence. It cannot support
+a population effect or a general throughput claim.

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from uuid import uuid4
 
 from syberruntime.hashing import canonical_json, digest_bytes
 from syberruntime.models import ArtifactRef
+
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class BlobStore:
@@ -16,7 +20,13 @@ class BlobStore:
         self.blob_root = self.root / "blobs" / "sha256"
 
     def path_for_digest(self, digest: str) -> Path:
-        return self.blob_root / digest[:2] / digest[2:]
+        canonical = validate_sha256_digest(digest)
+        path = self.blob_root / canonical[:2] / canonical[2:]
+        blob_root = self.blob_root.resolve(strict=False)
+        resolved = path.resolve(strict=False)
+        if not resolved.is_relative_to(blob_root):
+            raise ValueError(f"Blob path escaped the content-addressed root: {digest!r}")
+        return path
 
     def put_bytes(
         self,
@@ -72,3 +82,9 @@ class BlobStore:
         with tombstone_path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(canonical_json({"digest": digest, "reason": reason, "existed": existed}))
             handle.write("\n")
+
+
+def validate_sha256_digest(digest: str) -> str:
+    if not isinstance(digest, str) or _SHA256_RE.fullmatch(digest) is None:
+        raise ValueError(f"Artifact digest must be 64 lowercase hexadecimal characters: {digest!r}")
+    return digest

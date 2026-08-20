@@ -90,6 +90,25 @@ class Phase4HardeningTests(unittest.TestCase):
             tombstones = (Path(tmp) / "deletion_tombstones.jsonl").read_text(encoding="utf-8")
             self.assertIn("test deletion", tombstones)
 
+    def test_blob_store_rejects_noncanonical_and_traversal_digests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Runtime(tmp)
+
+            for digest in ("../../target.txt", "A" * 64, "0" * 63, "not-a-digest"):
+                with self.subTest(digest=digest):
+                    with self.assertRaises(ValueError):
+                        runtime.blobs.path_for_digest(digest)
+
+    def test_shred_requires_membership_in_artifact_projection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Runtime(tmp)
+            unknown = "0" * 64
+
+            with self.assertRaises(KeyError):
+                runtime.shred_blob(unknown)
+
+            self.assertFalse(runtime.blobs.path_for_digest(unknown).exists())
+
 
 def _built_runtime(tmp: str) -> tuple[Runtime, str, str]:
     runtime = Runtime(tmp, policy=FixedPolicy(default_profile="production"))

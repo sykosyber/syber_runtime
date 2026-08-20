@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import io
 import json
 import sys
@@ -10,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from syberruntime.acceptance import run_v1_acceptance_audit  # noqa: E402
+from syberruntime.acceptance import run_v1_acceptance_audit, validate_acceptance_report  # noqa: E402
 from syberruntime.cli import main  # noqa: E402
 
 
@@ -33,8 +34,11 @@ class Phase5AcceptanceTests(unittest.TestCase):
             {"pass", "warn"},
         )
         self.assertEqual(criterion_by_id["live_scale3_campaign"].status, "pass")
+        self.assertEqual(criterion_by_id["live_code_behavioral_campaign"].status, "pass")
+        self.assertEqual(criterion_by_id["heldout_conformal_coverage"].status, "pass")
+        self.assertEqual(criterion_by_id["rq0_rq6_controlled_baseline"].status, "pass")
         self.assertIn("agentic-live-scale3-004", criterion_by_id["live_scale3_campaign"].evidence)
-        self.assertGreaterEqual(len(report.criteria), 15)
+        self.assertGreaterEqual(len(report.criteria), 18)
 
     def test_acceptance_report_is_json_serializable(self) -> None:
         workspace_root = Path(__file__).resolve().parents[1]
@@ -45,6 +49,12 @@ class Phase5AcceptanceTests(unittest.TestCase):
         self.assertEqual(report["overall_status"], "ready_with_warnings")
         self.assertEqual(report["warning_count"], 1)
         self.assertTrue(all("citation" in criterion for criterion in report["criteria"]))
+        validate_acceptance_report(report)
+
+        tampered = copy.deepcopy(report)
+        tampered["criteria"][0]["evidence"] = "rewritten evidence"
+        with self.assertRaisesRegex(ValueError, "report_id mismatch"):
+            validate_acceptance_report(tampered)
 
     def test_acceptance_check_cli_can_write_report_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

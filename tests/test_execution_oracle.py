@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -73,6 +74,85 @@ class ExecutionOracleTests(unittest.TestCase):
 
             self.assertFalse(result.passed)
             self.assertIn("timed out", result.details)
+
+    def test_python_tests_worker_denies_network_access(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            blobs = BlobStore(tmp)
+            artifact = blobs.put_text("import socket\nsocket.socket()\n", name="network.py")
+
+            result = DeterministicVerifier(blobs).run(
+                artifact,
+                {"kind": "python_tests", "test_source": "import artifact_under_test\n"},
+            )
+
+            self.assertFalse(result.passed)
+            self.assertIn("denied network access", result.details)
+
+    def test_python_tests_worker_denies_reads_outside_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            secret = root / "outside-secret.txt"
+            secret.write_text("must-not-be-readable", encoding="utf-8")
+            blobs = BlobStore(root / "runtime")
+            artifact = blobs.put_text(
+                f"from pathlib import Path\nPath({str(secret)!r}).read_text(encoding='utf-8')\n",
+                name="reader.py",
+            )
+
+            result = DeterministicVerifier(blobs).run(
+                artifact,
+                {"kind": "python_tests", "test_source": "import artifact_under_test\n"},
+            )
+
+            self.assertFalse(result.passed)
+            self.assertIn("outside allowed roots", result.details)
+
+    def test_python_tests_worker_does_not_inherit_provider_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            blobs = BlobStore(tmp)
+            artifact = blobs.put_text(
+                "import os\ndef inherited_secret():\n    return os.environ.get('SYBER_TEST_PROVIDER_SECRET')\n",
+                name="environment.py",
+            )
+            check = {
+                "kind": "python_tests",
+                "test_source": (
+                    "import unittest\n"
+                    "from artifact_under_test import inherited_secret\n"
+                    "class EnvironmentTests(unittest.TestCase):\n"
+                    "    def test_secret_absent(self):\n"
+                    "        self.assertIsNone(inherited_secret())\n"
+                ),
+            }
+            previous = os.environ.get("SYBER_TEST_PROVIDER_SECRET")
+            os.environ["SYBER_TEST_PROVIDER_SECRET"] = "sensitive-value"
+            try:
+                result = DeterministicVerifier(blobs).run(artifact, check)
+            finally:
+                if previous is None:
+                    os.environ.pop("SYBER_TEST_PROVIDER_SECRET", None)
+                else:
+                    os.environ["SYBER_TEST_PROVIDER_SECRET"] = previous
+
+            self.assertTrue(result.passed, result.details)
+
+    def test_python_tests_reject_invalid_resource_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            blobs = BlobStore(tmp)
+            artifact = blobs.put_text(ADDER_SOURCE, name="adder.py")
+
+            with self.assertRaises(VerificationError):
+                DeterministicVerifier(blobs).run(artifact, _adder_check(memory_mb=32))
+
+            for overrides in (
+                {"timeout_seconds": float("inf")},
+                {"timeout_seconds": 301},
+                {"cpu_seconds": 121},
+                {"memory_mb": 1025},
+            ):
+                with self.subTest(overrides=overrides):
+                    with self.assertRaises(VerificationError):
+                        DeterministicVerifier(blobs).run(artifact, _adder_check(**overrides))
 
     def test_python_tests_reject_path_traversal_filenames(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

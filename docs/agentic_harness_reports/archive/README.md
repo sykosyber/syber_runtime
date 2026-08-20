@@ -15,5 +15,6 @@ outside report discovery, which only scans the top level of
 fall back to a hinted run.
 
 Current, un-hinted evidence: `agentic-live-004.json` and
-`agentic-live-scale3-004.json` in the parent directory, audited in
-`docs/acceptance_reports/live_mcp_acceptance_002.json`.
+`agentic-live-scale3-004.json` in the parent directory. They pass the
+hardened local evidence audit; the historical 002 acceptance report predates
+the current binding schema.
